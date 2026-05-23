@@ -110,6 +110,14 @@ app.use(express.urlencoded({ extended: true }));
 // ─── Routes ─────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => res.json({ message: 'Server is running', status: 'ok', timestamp: new Date().toISOString() }));
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.get('/health/db', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT 1 AS ok');
+    res.json({ status: 'ok', db: rows[0] });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message, code: err.code });
+  }
+});
 app.use('/api/auth', authRoutes);
 app.use('/api', apiRoutes);
 
