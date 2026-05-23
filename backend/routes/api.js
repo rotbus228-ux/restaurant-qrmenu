@@ -1,8 +1,12 @@
 const express    = require('express');
 const router     = express.Router();
 const adminAuth  = require('../middleware/adminAuth');
-const orderController = require('../controllers/orderController');
-const menuController  = require('../controllers/menuController');
+const orderController  = require('../controllers/orderController');
+const menuController   = require('../controllers/menuController');
+const { upload, uploadMenuImage } = require('../controllers/uploadController');
+
+// ─── Upload ──────────────────────────────────────────────────────────────────
+router.post('/upload/menu-image', adminAuth, upload.single('file'), uploadMenuImage);
 
 // ─── Tables ──────────────────────────────────────────────────────────────────
 // GET + PUT /status ไม่ต้องล็อก — ลูกค้าต้องใช้ทั้งสองนี้ตอนเลือกโต๊ะ

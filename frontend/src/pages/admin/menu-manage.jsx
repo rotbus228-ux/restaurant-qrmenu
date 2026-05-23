@@ -98,6 +98,25 @@ function MenuModal({ open, mode, formData, categories, saving, onChange, onSave,
   if (!open) return null
 
   const isEdit = mode === 'edit'
+  const [uploading, setUploading] = useState(false)
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await axios.post(`${API_BASE}/api/upload/menu-image`, fd, {
+        headers: { ...getAuthHeaders(), 'Content-Type': 'multipart/form-data' },
+      })
+      onChange('image_url', res.data.url)
+    } catch (err) {
+      alert(err.response?.data?.message || 'อัปโหลดรูปไม่สำเร็จ')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -179,18 +198,24 @@ function MenuModal({ open, mode, formData, categories, saving, onChange, onSave,
 
           <div>
             <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2">
-              URL รูปภาพ <span className="text-slate-400 font-medium normal-case">(ไม่บังคับ)</span>
+              รูปภาพเมนู <span className="text-slate-400 font-medium normal-case">(ไม่บังคับ)</span>
             </label>
-            <input
-              type="text"
-              value={formData.image_url}
-              onChange={e => onChange('image_url', e.target.value)}
-              placeholder="https://example.com/image.jpg"
-              className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 focus:outline-none transition-all"
-            />
+            <label className={`flex items-center gap-3 w-full border-2 rounded-xl px-4 py-3 cursor-pointer transition-all
+              ${uploading ? 'border-indigo-300 bg-indigo-50' : 'border-dashed border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/40'}`}>
+              <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} disabled={uploading} />
+              <span className="text-2xl flex-shrink-0">{uploading ? '⏳' : '📷'}</span>
+              <span className="text-sm text-slate-500 font-medium">
+                {uploading ? 'กำลังอัปโหลด...' : 'คลิกเพื่อเลือกรูปภาพ (PNG, JPG, WEBP)'}
+              </span>
+            </label>
             {formData.image_url && (
-              <div className="mt-2 w-full h-32 rounded-xl overflow-hidden ring-1 ring-slate-200 bg-slate-50">
+              <div className="mt-2 relative w-full h-36 rounded-xl overflow-hidden ring-1 ring-slate-200 bg-slate-50 group">
                 <img src={formData.image_url} alt="preview" className="w-full h-full object-cover" onError={e => e.target.style.display='none'} />
+                <button
+                  type="button"
+                  onClick={() => onChange('image_url', '')}
+                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >✕</button>
               </div>
             )}
           </div>
