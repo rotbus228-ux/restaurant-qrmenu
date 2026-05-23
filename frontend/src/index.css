@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Reset ที่จำเป็น */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-color: #f9fafb;
+}
+
+#root {
+  width: 100%;
+  min-height: 100svh;
+}
+
+/* ซ่อน scrollbar แต่ยังเลื่อนได้ (สำหรับ category tabs) */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* clamp 2 บรรทัด */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

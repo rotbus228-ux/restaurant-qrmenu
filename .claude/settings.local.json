@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"require\\('mysql2'\\); console.log\\('mysql2 OK'\\)\")",
+      "Bash(node init-db.js)",
+      "Bash(node server.js)",
+      "Bash(curl -s http://localhost:5000/health)",
+      "Bash(node -e ' *)",
+      "Bash(curl -s http://localhost:5000/)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(exit 0)",
+      "Bash(cmd.exe /c \"netstat -ano | findstr :5000 | findstr LISTENING\")",
+      "Bash(cmd.exe /c \"netstat -ano | findstr :5000\")",
+      "Bash(cmd.exe /c \"tasklist | findstr node\")"
+    ]
+  }
+}

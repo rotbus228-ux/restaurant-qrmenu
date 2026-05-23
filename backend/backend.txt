@@ -1,0 +1,733 @@
+require('dotenv').config();
+const express = require('express');
+const http    = require('http');
+const { Server } = require('socket.io');
+const cors   = require('cors');
+
+const pool      = require('./config/db');   // DB pool
+const apiRoutes = require('./routes/api');
+
+const app    = express();
+const server = http.createServer(app);
+
+// ─── Socket.io Setup ───────────────────────────────────────────────────────
+const io = new Server(server, {
+  cors: {
+    origin:  process.env.FRONTEND_URL || 'http://localhost:5173',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  },
+});
+
+// Inject io instance ให้ controllers ใช้งานได้ผ่าน req.app.get('io')
+app.set('io', io);
+
+io.on('connection', (socket) => {
+  console.log(`[Socket.io] Client connected    : ${socket.id}`);
+
+  // ─── ลูกค้าส่งออเดอร์ใหม่ ────────────────────────────────────────────────
+  // 1. ถ้าออเดอร์ยังไม่มี id จริง (ไม่ผ่าน REST API) และไม่ใช่ Mock → INSERT ลง DB
+  // 2. Emit 'admin_receive_order' ไปหน้า Dashboard เสมอ
+  socket.on('new_order', async (data) => {
+    console.log(`[Socket.io] new_order from ${socket.id} | table=${data.table_id} | mock=${data.isMock}`);
+
+    let orderData = { ...data };
+
+    // INSERT ลง DB เฉพาะออเดอร์จริงที่ยังไม่มี id (socket-only path)
+    const needsSave = !data.isMock
+      && !(Number.isInteger(data.id) && data.id > 0)
+      && data.table_id
+      && Array.isArray(data.items)
+      && data.items.length > 0;
+
+    if (needsSave) {
+      let conn;
+      try {
+        conn = await pool.getConnection();
+        await conn.beginTransaction();
+
+        // คำนวณราคารวมจาก items ถ้าไม่มี total_price
+        const totalPrice = data.total_price > 0
+          ? data.total_price
+          : data.items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0);
+
+        const customerCount = data.customer_count || 1;
+
+        // INSERT orders
+        const [result] = await conn.query(
+          'INSERT INTO orders (table_id, total_price, status, customer_count) VALUES (?, ?, "pending", ?)',
+          [data.table_id, totalPrice, customerCount]
+        );
+        const orderId = result.insertId;
+
+        // INSERT order_items
+        for (const item of data.items) {
+          const menuId  = item.menu_id ?? item.id;    // รองรับทั้ง 2 format
+          const price   = Number(item.price)  || 0;
+          const qty     = Number(item.quantity) || 1;
+          const opts     = item.options ? JSON.stringify(item.options) : null;
+          const itemNote = item.note || null;
+          await conn.query(
+            'INSERT INTO order_items (order_id, menu_id, quantity, price, options, note) VALUES (?, ?, ?, ?, ?, ?)',
+            [orderId, menuId, qty, price, opts, itemNote]
+          );
+        }
+
+        // อัปเดตสถานะโต๊ะ → occupied (ถ้า tables record มีอยู่)
+        await conn.query(
+          'UPDATE tables SET status = "occupied", current_customers = ?, updated_at = NOW() WHERE id = ?',
+          [customerCount, data.table_id]
+        );
+
+        await conn.commit();
+        orderData = { ...orderData, id: orderId };
+        console.log(`[Socket.io] new_order → saved to DB: order #${orderId}`);
+
+      } catch (err) {
+        if (conn) await conn.rollback();
+        console.error('[Socket.io] new_order DB error:', err.message);
+        // ถึงแม้บันทึก DB ไม่สำเร็จ ก็ยังส่งต่อให้ admin ทราบ
+      } finally {
+        if (conn) conn.release();
+      }
+    }
+
+    // ส่งต่อให้ Admin Dashboard เสมอ
+    io.emit('admin_receive_order', orderData);
+  });
+
+  // ─── Admin อัปเดตสถานะ → ส่งกลับไปยังลูกค้า ──────────────────────────────
+  socket.on('update_status', (data) => {
+    console.log(`[Socket.io] update_status from ${socket.id} | order=${data.order_id} | status=${data.status}`);
+    io.emit('client_receive_status', data);
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`[Socket.io] Client disconnected : ${socket.id}`);
+  });
+});
+
+// ─── Middleware ────────────────────────────────────────────────────────────
+app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ─── Routes ───────────────────────────────────────────────────────────────
+
+// สถานะเซิร์ฟเวอร์ (root)
+app.get('/', (req, res) => {
+  res.json({
+    message:   'Server is running',
+    status:    'ok',
+    timestamp: new Date().toISOString(),
+    version:   process.env.npm_package_version || '1.0.0',
+  });
+});
+
+// Health-check endpoint (สำหรับ monitoring / uptime tools)
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// API routes
+app.use('/api', apiRoutes);
+
+// ─── 404 Handler ──────────────────────────────────────────────────────────
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: 'Route not found' });
+});
+
+// ─── Global Error Handler ─────────────────────────────────────────────────
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('[Global Error]', err.stack || err);
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Internal server error',
+  });
+});
+
+// ─── Start Server ─────────────────────────────────────────────────────────
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, async () => {
+  console.log(`🚀  Server   → http://localhost:${PORT}`);
+  console.log(`📡  Socket.io ready`);
+  console.log(`🌐  CORS allowed for: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+
+  // ─── ทดสอบเชื่อมต่อฐานข้อมูลตั้งแต่ Startup ───────────────────────────
+  try {
+    const conn = await pool.getConnection();
+    console.log(`✅  Database → connected (${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 3306}/${process.env.DB_NAME || 'restaurant_db'})`);
+    conn.release();
+
+    // ─── Auto-migrate ──────────────────────────────────────────────────────
+    const dbName = process.env.DB_NAME || 'restaurant_db';
+    const migrations = [
+      {
+        check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'order_items' AND COLUMN_NAME = 'options'`,
+        sql:   'ALTER TABLE order_items ADD COLUMN options JSON NULL',
+        label: 'order_items.options',
+      },
+      {
+        check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'menus' AND COLUMN_NAME = 'description'`,
+        sql:   'ALTER TABLE menus ADD COLUMN description TEXT NULL AFTER name',
+        label: 'menus.description',
+      },
+      {
+        check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'order_items' AND COLUMN_NAME = 'note'`,
+        sql:   'ALTER TABLE order_items ADD COLUMN note TEXT NULL',
+        label: 'order_items.note',
+      },
+    ];
+    for (const m of migrations) {
+      try {
+        const [rows] = await pool.query(m.check, [dbName]);
+        if (!rows.length) {
+          await pool.query(m.sql);
+          console.log(`✅  Migration → ${m.label} added`);
+        }
+      } catch (migErr) {
+        console.warn(`⚠️  Migration warning (${m.label}):`, migErr.message);
+      }
+    }
+  } catch (err) {
+    console.error(`❌  Database → connection FAILED: ${err.message}`);
+    console.error('    👉 ตรวจสอบว่า XAMPP MySQL เปิดอยู่ และค่า .env ถูกต้อง');
+  }
+});
+
+const express = require('express');
+const router = express.Router();
+const orderController = require('../controllers/orderController');
+const menuController  = require('../controllers/menuController');
+
+// ─── Tables ──────────────────────────────────────────────────────────────────
+router.get  ('/tables',                    menuController.getAllTables);
+router.patch('/tables/:id/customers',      menuController.updateTableCustomers);
+
+// ─── Categories ──────────────────────────────────────────────────────────────
+router.get   ('/categories',      menuController.getAllCategories);
+router.post  ('/categories',      menuController.createCategory);
+router.delete('/categories/:id',  menuController.deleteCategory);
+
+// ─── Menus ───────────────────────────────────────────────────────────────────
+router.get   ('/menus',                    menuController.getAllMenus);
+router.post  ('/menus',                    menuController.createMenu);
+router.put   ('/menus/:id/availability',   menuController.updateMenuAvailability);  // ต้องอยู่ก่อน /:id
+router.put   ('/menus/:id',               menuController.updateMenu);
+router.delete('/menus/:id',               menuController.deleteMenu);
+
+// ─── Orders ──────────────────────────────────────────────────────────────────
+router.get  ('/orders',              orderController.getAllOrders);
+router.post ('/orders',              orderController.createOrder);
+router.put  ('/orders/:id/status',   orderController.updateOrderStatus);
+router.patch('/orders/:id/status',   orderController.updateOrderStatus);
+
+// ─── Stats ───────────────────────────────────────────────────────────────────
+router.get('/stats/today',     orderController.getTodayStats);
+router.get('/stats/top-menus', orderController.getTopMenus);
+
+module.exports = router;
+
+const pool = require('../config/db');
+const { sendOrderNotification: sendLine } = require('../config/line');
+const { sendOrderNotification: sendTelegram } = require('../config/telegram');
+
+const orderController = {
+  /**
+   * GET /api/orders
+   */
+  getAllOrders: async (req, res) => {
+    try {
+      const { table_id } = req.query;
+      let query = `SELECT o.*, t.table_number FROM orders o JOIN tables t ON o.table_id = t.id`;
+      const params = [];
+      if (table_id) {
+        query += ' WHERE o.table_id = ?';
+        params.push(Number(table_id));
+      }
+      query += ' ORDER BY o.created_at DESC';
+      const [orders] = await pool.query(query, params);
+
+      for (const order of orders) {
+        const [items] = await pool.query(
+          `SELECT oi.*, m.name
+           FROM order_items oi
+           JOIN menus m ON oi.menu_id = m.id
+           WHERE oi.order_id = ?`,
+          [order.id]
+        );
+        order.items = items.map(item => ({
+          ...item,
+          options: typeof item.options === 'string'
+            ? JSON.parse(item.options || '[]')
+            : (item.options || []),
+          note: item.note || '',
+        }));
+      }
+
+      res.json({ success: true, data: orders });
+    } catch (err) {
+      console.error('[orderController.getAllOrders]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * POST /api/orders
+   */
+  createOrder: async (req, res) => {
+    const { table_id, customer_count, items } = req.body;
+
+    if (!table_id || !customer_count || !items || items.length === 0) {
+      return res.status(400).json({ success: false, message: 'ข้อมูลไม่ครบถ้วน' });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      let totalPrice = 0;
+      const enrichedItems = [];
+
+      for (const item of items) {
+        const [[menu]] = await conn.query('SELECT * FROM menus WHERE id = ? AND is_available = 1', [item.menu_id]);
+        if (!menu) throw new Error(`เมนู id ${item.menu_id} ไม่พบหรือไม่พร้อมให้บริการ`);
+        const itemOptions = Array.isArray(item.options) ? item.options : [];
+        const optionsExtra = itemOptions.reduce((s, o) => s + (Number(o.extra) || 0), 0);
+        const unitPrice = menu.price + optionsExtra;
+        const subtotal = unitPrice * item.quantity;
+        totalPrice += subtotal;
+        enrichedItems.push({
+          ...item,
+          name:      menu.name,
+          price:     menu.price,
+          unitPrice,
+          options:   itemOptions,
+          note:      item.note || null,
+        });
+      }
+
+      const [orderResult] = await conn.query(
+        'INSERT INTO orders (table_id, total_price, status, customer_count) VALUES (?, ?, "pending", ?)',
+        [table_id, totalPrice, customer_count]
+      );
+      const orderId = orderResult.insertId;
+
+      for (const item of enrichedItems) {
+        await conn.query(
+          'INSERT INTO order_items (order_id, menu_id, quantity, price, options, note) VALUES (?, ?, ?, ?, ?, ?)',
+          [orderId, item.menu_id, item.quantity, item.unitPrice, JSON.stringify(item.options || []), item.note || null]
+        );
+      }
+
+      await conn.query(
+        'UPDATE tables SET status = "occupied", current_customers = ?, updated_at = NOW() WHERE id = ?',
+        [customer_count, table_id]
+      );
+
+      await conn.commit();
+
+      const [[table]] = await pool.query('SELECT * FROM tables WHERE id = ?', [table_id]);
+
+      const orderData = {
+        id:             orderId,
+        table_id,
+        table_number:   table.table_number,
+        total_price:    totalPrice,
+        status:         'pending',
+        customer_count,
+        items:          enrichedItems,
+        created_at:     new Date(),
+      };
+
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('new_order', orderData);
+        io.emit('table_status_update', { table_id, status: 'occupied', current_customers: customer_count });
+      }
+
+      sendLine(orderData, table.table_number, enrichedItems).catch(e =>
+        console.error('[LINE Notify Error]', e.message)
+      );
+      sendTelegram(orderData, table.table_number, enrichedItems).catch(e =>
+        console.error('[Telegram Notify Error]', e.message)
+      );
+
+      res.status(201).json({ success: true, data: orderData });
+    } catch (err) {
+      await conn.rollback();
+      console.error('[orderController.createOrder]', err);
+      res.status(500).json({ success: false, message: err.message || 'เกิดข้อผิดพลาด' });
+    } finally {
+      conn.release();
+    }
+  },
+
+  /**
+   * PUT/PATCH /api/orders/:id/status
+   */
+  updateOrderStatus: async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const validStatuses = ['pending', 'preparing', 'serving', 'served', 'completed', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, message: 'สถานะไม่ถูกต้อง' });
+    }
+
+    try {
+      await pool.query('UPDATE orders SET status = ? WHERE id = ?', [status, id]);
+
+      const [[order]] = await pool.query(
+        `SELECT o.*, t.table_number FROM orders o JOIN tables t ON o.table_id = t.id WHERE o.id = ?`,
+        [id]
+      );
+      if (!order) return res.status(404).json({ success: false, message: 'ไม่พบออเดอร์' });
+
+      if (status === 'completed' || status === 'cancelled') {
+        await pool.query(
+          'UPDATE tables SET status = "vacant", current_customers = 0, updated_at = NOW() WHERE id = ?',
+          [order.table_id]
+        );
+      }
+
+      const io = req.app.get('io');
+      if (io) {
+        const payload = { order_id: Number(id), status, table_id: order.table_id };
+        io.emit('order_status_update', payload);
+        io.emit('client_receive_status', payload);
+        if (status === 'completed' || status === 'cancelled') {
+          io.emit('table_status_update', { table_id: order.table_id, status: 'vacant', current_customers: 0 });
+        }
+      }
+
+      res.json({ success: true, data: order });
+    } catch (err) {
+      console.error('[orderController.updateOrderStatus]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * GET /api/stats/today
+   */
+  getTodayStats: async (req, res) => {
+    try {
+      const [[{ totalCustomers }]] = await pool.query(
+        `SELECT COALESCE(SUM(customer_count), 0) AS totalCustomers
+         FROM orders WHERE DATE(created_at) = CURDATE()`
+      );
+      const [[{ totalOrders }]] = await pool.query(
+        `SELECT COUNT(*) AS totalOrders
+         FROM orders WHERE DATE(created_at) = CURDATE()`
+      );
+      const [[{ totalSales }]] = await pool.query(
+        `SELECT COALESCE(SUM(total_price), 0) AS totalSales
+         FROM orders WHERE DATE(created_at) = CURDATE() AND status NOT IN ('cancelled')`
+      );
+      res.json({
+        success: true,
+        data: {
+          totalCustomers: Number(totalCustomers),
+          totalOrders:    Number(totalOrders),
+          totalSales:     Number(totalSales),
+        },
+      });
+    } catch (err) {
+      console.error('[orderController.getTodayStats]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * GET /api/stats/top-menus
+   * 5 อันดับเมนูขายดีวันนี้
+   */
+  getTopMenus: async (req, res) => {
+    try {
+      const [topMenus] = await pool.query(
+        `SELECT m.id, m.name,
+                SUM(oi.quantity) AS total_qty,
+                COALESCE(SUM(oi.price * oi.quantity), 0) AS total_sales
+         FROM order_items oi
+         JOIN menus m ON oi.menu_id = m.id
+         JOIN orders o ON oi.order_id = o.id
+         WHERE DATE(o.created_at) = CURDATE()
+           AND o.status NOT IN ('cancelled')
+         GROUP BY m.id, m.name
+         ORDER BY total_qty DESC
+         LIMIT 5`
+      );
+      res.json({
+        success: true,
+        data: topMenus.map(r => ({
+          id:          r.id,
+          name:        r.name,
+          total_qty:   Number(r.total_qty),
+          total_sales: Number(r.total_sales),
+        })),
+      });
+    } catch (err) {
+      console.error('[orderController.getTopMenus]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+};
+
+module.exports = orderController;
+
+const pool = require('../config/db');
+
+const menuController = {
+  /**
+   * GET /api/menus
+   */
+  getAllMenus: async (req, res) => {
+    try {
+      const { category_id } = req.query;
+      let query = `
+        SELECT m.*, c.name AS category_name
+        FROM menus m
+        JOIN categories c ON m.category_id = c.id
+      `;
+      const params = [];
+      if (category_id) {
+        query += ' WHERE m.category_id = ?';
+        params.push(category_id);
+      }
+      query += ' ORDER BY m.category_id, m.name';
+      const [menus] = await pool.query(query, params);
+      res.json({ success: true, data: menus });
+    } catch (err) {
+      console.error('[menuController.getAllMenus]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * GET /api/categories
+   */
+  getAllCategories: async (req, res) => {
+    try {
+      const [categories] = await pool.query('SELECT * FROM categories ORDER BY name');
+      res.json({ success: true, data: categories });
+    } catch (err) {
+      console.error('[menuController.getAllCategories]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * POST /api/categories
+   */
+  createCategory: async (req, res) => {
+    const { name } = req.body;
+    if (!name?.trim()) {
+      return res.status(400).json({ success: false, message: 'กรุณาระบุชื่อหมวดหมู่' });
+    }
+    try {
+      const [result] = await pool.query('INSERT INTO categories (name) VALUES (?)', [name.trim()]);
+      const [[cat]] = await pool.query('SELECT * FROM categories WHERE id = ?', [result.insertId]);
+      res.status(201).json({ success: true, data: cat });
+    } catch (err) {
+      console.error('[menuController.createCategory]', err);
+      if (err.code === 'ER_DUP_ENTRY') {
+        return res.status(400).json({ success: false, message: `หมวดหมู่ "${name.trim()}" มีอยู่แล้ว` });
+      }
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * DELETE /api/categories/:id
+   */
+  deleteCategory: async (req, res) => {
+    const { id } = req.params;
+    try {
+      const [[{ cnt }]] = await pool.query(
+        'SELECT COUNT(*) AS cnt FROM menus WHERE category_id = ?', [id]
+      );
+      if (cnt > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `ไม่สามารถลบได้ มีเมนูอยู่ ${cnt} รายการในหมวดนี้`,
+        });
+      }
+      const [[cat]] = await pool.query('SELECT * FROM categories WHERE id = ?', [id]);
+      if (!cat) return res.status(404).json({ success: false, message: 'ไม่พบหมวดหมู่' });
+      await pool.query('DELETE FROM categories WHERE id = ?', [id]);
+      res.json({ success: true, message: 'ลบหมวดหมู่สำเร็จ' });
+    } catch (err) {
+      console.error('[menuController.deleteCategory]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * POST /api/menus
+   */
+  createMenu: async (req, res) => {
+    const { category_id, name, description, price, image_url, is_available = true } = req.body;
+    if (!category_id || !name || price === undefined) {
+      return res.status(400).json({ success: false, message: 'ข้อมูลไม่ครบถ้วน' });
+    }
+    try {
+      const [result] = await pool.query(
+        'INSERT INTO menus (category_id, name, description, price, image_url, is_available) VALUES (?, ?, ?, ?, ?, ?)',
+        [category_id, name, description || null, price, image_url || null, is_available ? 1 : 0]
+      );
+      const [[menu]] = await pool.query(
+        `SELECT m.*, c.name AS category_name FROM menus m JOIN categories c ON m.category_id = c.id WHERE m.id = ?`,
+        [result.insertId]
+      );
+      res.status(201).json({ success: true, data: menu });
+    } catch (err) {
+      console.error('[menuController.createMenu]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * PUT /api/menus/:id
+   */
+  updateMenu: async (req, res) => {
+    const { id } = req.params;
+    const { category_id, name, description, price, image_url, is_available } = req.body;
+    try {
+      await pool.query(
+        'UPDATE menus SET category_id = ?, name = ?, description = ?, price = ?, image_url = ?, is_available = ? WHERE id = ?',
+        [category_id, name, description || null, price, image_url || null, is_available ? 1 : 0, id]
+      );
+      const [[menu]] = await pool.query(
+        `SELECT m.*, c.name AS category_name FROM menus m JOIN categories c ON m.category_id = c.id WHERE m.id = ?`,
+        [id]
+      );
+      if (!menu) return res.status(404).json({ success: false, message: 'ไม่พบเมนู' });
+
+      // Emit real-time availability update
+      const io = req.app.get('io');
+      if (io && is_available !== undefined) {
+        io.emit('menu_availability_update', {
+          menu_id:      Number(id),
+          is_available: !!menu.is_available,
+        });
+      }
+
+      res.json({ success: true, data: menu });
+    } catch (err) {
+      console.error('[menuController.updateMenu]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * PUT /api/menus/:id/availability
+   * อัปเดตเฉพาะ is_available + emit socket เพื่อแจ้งฝั่งลูกค้าทันที
+   */
+  updateMenuAvailability: async (req, res) => {
+    const { id } = req.params;
+    const { is_available } = req.body;
+
+    if (is_available === undefined) {
+      return res.status(400).json({ success: false, message: 'ต้องระบุ is_available' });
+    }
+
+    try {
+      await pool.query(
+        'UPDATE menus SET is_available = ? WHERE id = ?',
+        [is_available ? 1 : 0, id]
+      );
+
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('menu_availability_update', {
+          menu_id:      Number(id),
+          is_available: !!is_available,
+        });
+      }
+
+      res.json({ success: true, message: 'อัปเดตสถานะเมนูสำเร็จ' });
+    } catch (err) {
+      console.error('[menuController.updateMenuAvailability]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * DELETE /api/menus/:id
+   */
+  deleteMenu: async (req, res) => {
+    const { id } = req.params;
+    try {
+      const [[menu]] = await pool.query('SELECT * FROM menus WHERE id = ?', [id]);
+      if (!menu) return res.status(404).json({ success: false, message: 'ไม่พบเมนู' });
+      await pool.query('DELETE FROM menus WHERE id = ?', [id]);
+      res.json({ success: true, message: 'ลบเมนูสำเร็จ' });
+    } catch (err) {
+      console.error('[menuController.deleteMenu]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * GET /api/tables
+   */
+  getAllTables: async (req, res) => {
+    try {
+      const [tables] = await pool.query('SELECT * FROM tables ORDER BY table_number');
+      res.json({ success: true, data: tables });
+    } catch (err) {
+      console.error('[menuController.getAllTables]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /**
+   * PATCH /api/tables/:id/customers
+   */
+  updateTableCustomers: async (req, res) => {
+    const { id } = req.params;
+    const { customer_count } = req.body;
+    try {
+      const status = customer_count > 0 ? 'occupied' : 'vacant';
+      await pool.query(
+        'UPDATE tables SET current_customers = ?, status = ?, updated_at = NOW() WHERE id = ?',
+        [customer_count, status, id]
+      );
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('table_status_update', { table_id: Number(id), status, current_customers: customer_count });
+      }
+      res.json({ success: true, message: 'อัปเดตสำเร็จ' });
+    } catch (err) {
+      console.error('[menuController.updateTableCustomers]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+};
+
+module.exports = menuController;
+
+# ─── Server ───────────────────────────────────────────────
+PORT=5000
+
+# URL ของ Frontend (ใช้ตั้งค่า CORS)
+FRONTEND_URL=http://localhost:5173
+
+# ─── Database (MySQL) ─────────────────────────────────────
+DB_HOST=localhost
+DB_USER=root
+DB_PASS=
+DB_NAME=restaurant_db
+
+# ─── Telegram Bot API ─────────────────────────────────────
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+
+# ─── LINE Messaging API ───────────────────────────────────
+LINE_CHANNEL_ACCESS_TOKEN=
+LINE_CHANNEL_SECRET=
+
