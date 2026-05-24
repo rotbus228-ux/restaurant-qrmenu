@@ -137,48 +137,32 @@ function MenuCardSkeleton({ mode = 'list' }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   OptionsModal — Interactive Selection Grid
+   OptionsModal — uses menu.options from DB
 ───────────────────────────────────────────────────────────────────────────── */
 function OptionsModal({ menu, onConfirm, onClose }) {
-  const config = getCategoryConfig(menu?.category_name)
-
-  const [primaryKey,       setPrimaryKey]       = useState(config.primary[0]?.key || 'normal')
-  const [selectedToppings, setSelectedToppings] = useState(new Set())
-  const [note,             setNote]             = useState('')
+  const dbOptions = Array.isArray(menu?.options) ? menu.options : []
+  const [selected, setSelected] = useState(new Set())
+  const [note,     setNote]     = useState('')
 
   if (!menu) return null
 
-  const toggleTopping = (key) => {
-    setSelectedToppings(prev => {
-      const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
-      return next
-    })
-  }
+  const toggleOpt = (id) => setSelected(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
 
-  const primaryItem  = config.primary.find(p => p.key === primaryKey)
-  const primaryExtra = primaryItem?.extra || 0
-  const toppingExtra = Array.from(selectedToppings).reduce((sum, key) => {
-    const t = config.toppings.find(t => t.key === key)
-    return sum + (t?.extra || 0)
+  const extraTotal = Array.from(selected).reduce((sum, id) => {
+    const o = dbOptions.find(o => o.id === id)
+    return sum + (Number(o?.extra_price) || 0)
   }, 0)
-  const unitPrice = menu.price + primaryExtra + toppingExtra
+  const unitPrice = (menu.price || 0) + extraTotal
 
   const handleConfirm = () => {
-    const opts = []
-    if (primaryItem) {
-      if (config.type === 'level') {
-        if (primaryKey !== 'normal') opts.push({ label: primaryItem.label, extra: primaryItem.extra })
-      } else if (config.type === 'sweetness') {
-        opts.push({ label: `หวาน${primaryItem.label}`, extra: 0 })
-      } else if (config.type === 'serving') {
-        opts.push({ label: primaryItem.label, extra: primaryItem.extra })
-      }
-    }
-    for (const key of selectedToppings) {
-      const t = config.toppings.find(t => t.key === key)
-      if (t) opts.push({ label: t.label, extra: t.extra })
-    }
+    const opts = Array.from(selected).map(id => {
+      const o = dbOptions.find(o => o.id === id)
+      return { label: o.name, extra: Number(o.extra_price) || 0 }
+    })
     onConfirm(opts, note.trim())
   }
 
@@ -223,54 +207,19 @@ function OptionsModal({ menu, onConfirm, onClose }) {
             </div>
           </div>
 
-          {/* Primary selection — Interactive Grid */}
-          <div>
-            <p className="text-[11px] font-black text-stone-500 mb-2.5 uppercase tracking-widest flex items-center gap-1.5">
-              <span className="w-1 h-3 bg-orange-500 rounded-full" />
-              {config.primaryLabel}
-            </p>
-            <div className={`grid gap-2 ${config.primary.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
-              {config.primary.map(opt => {
-                const isSel = primaryKey === opt.key
-                return (
-                  <button
-                    key={opt.key}
-                    onClick={() => setPrimaryKey(opt.key)}
-                    className={`relative py-3 px-2 rounded-2xl text-sm font-bold border-2 transition-all duration-200 ${
-                      isSel
-                        ? 'border-orange-500 bg-gradient-to-br from-orange-50 to-amber-50 text-orange-700 ring-2 ring-orange-500/30 shadow-md scale-[1.03]'
-                        : 'border-stone-200 text-stone-600 hover:border-orange-200 hover:bg-orange-50/40'
-                    }`}
-                  >
-                    {isSel && (
-                      <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-orange-500 text-white rounded-full flex items-center justify-center shadow-md">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>
-                      </span>
-                    )}
-                    <div>{opt.label}</div>
-                    <div className={`text-xs font-semibold mt-0.5 ${isSel ? 'text-orange-600' : 'text-stone-400'}`}>
-                      {opt.extra > 0 ? `+${opt.extra}฿` : 'ปกติ'}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Toppings */}
-          {config.toppings.length > 0 && (
+          {/* DB Options */}
+          {dbOptions.length > 0 && (
             <div>
               <p className="text-[11px] font-black text-stone-500 mb-2.5 uppercase tracking-widest flex items-center gap-1.5">
-                <span className="w-1 h-3 bg-amber-500 rounded-full" />
-                เพิ่มเติม
+                <span className="w-1 h-3 bg-orange-500 rounded-full" /> ตัวเลือกพิเศษ
               </p>
               <div className="space-y-2">
-                {config.toppings.map(t => {
-                  const isSel = selectedToppings.has(t.key)
+                {dbOptions.map(opt => {
+                  const isSel = selected.has(opt.id)
                   return (
                     <button
-                      key={t.key}
-                      onClick={() => toggleTopping(t.key)}
+                      key={opt.id}
+                      onClick={() => toggleOpt(opt.id)}
                       className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border-2 text-sm font-bold transition-all duration-200 ${
                         isSel
                           ? 'border-orange-500 bg-gradient-to-r from-orange-50 to-amber-50 text-orange-700 ring-2 ring-orange-500/20 shadow-sm'
@@ -278,16 +227,16 @@ function OptionsModal({ menu, onConfirm, onClose }) {
                       }`}
                     >
                       <span className="flex items-center gap-2.5">
-                        <span className={`text-2xl transition-transform duration-200 ${isSel ? 'scale-110' : ''}`}>{t.emoji}</span>
-                        {t.label}
-                      </span>
-                      <span className={`flex items-center gap-1.5 text-sm ${isSel ? 'text-orange-600 font-black' : 'text-stone-400'}`}>
                         {isSel && (
-                          <span className="w-5 h-5 bg-orange-500 text-white rounded-full flex items-center justify-center">
+                          <span className="w-5 h-5 bg-orange-500 text-white rounded-full flex items-center justify-center flex-shrink-0">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>
                           </span>
                         )}
-                        +{t.extra}฿
+                        {!isSel && <span className="w-5 h-5 rounded-full border-2 border-stone-300 flex-shrink-0" />}
+                        {opt.name}
+                      </span>
+                      <span className={`font-black ${isSel ? 'text-orange-600' : 'text-stone-400'}`}>
+                        {Number(opt.extra_price) > 0 ? `+฿${Number(opt.extra_price)}` : 'ฟรี'}
                       </span>
                     </button>
                   )
@@ -305,7 +254,7 @@ function OptionsModal({ menu, onConfirm, onClose }) {
             <textarea
               value={note}
               onChange={e => setNote(e.target.value)}
-              placeholder="เช่น เผ็ดน้อย, ไม่ใส่ต้นหอม..."
+              placeholder="เช่น เผ็ดน้อย, ไม่ใส่ต้นหอม, ไม่ใส่ผัก..."
               maxLength={100}
               rows={2}
               className="w-full border-2 border-stone-200 rounded-2xl px-4 py-3 text-sm text-stone-700 placeholder-stone-400 focus:border-orange-400 focus:ring-4 focus:ring-orange-100 focus:outline-none resize-none transition-all"

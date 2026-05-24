@@ -23,6 +23,7 @@ router.delete('/categories/:id', adminAuth, menuController.deleteCategory);
 router.get   ('/menus',                  menuController.getAllMenus);                 // public — ลูกค้าดูเมนูได้
 router.post  ('/menus',                  adminAuth, menuController.createMenu);
 router.put   ('/menus/:id/availability', adminAuth, menuController.updateMenuAvailability);  // ต้องอยู่ก่อน /:id
+router.put   ('/menus/:id/options',      adminAuth, menuController.setMenuOptions);
 router.put   ('/menus/:id',              adminAuth, menuController.updateMenu);
 router.delete('/menus/:id',              adminAuth, menuController.deleteMenu);
 

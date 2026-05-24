@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { io } from 'socket.io-client'
 import axios from 'axios'
-import { adminLogout } from '../../utils/adminAuth'
+import { adminLogout, getAuthHeaders } from '../../utils/adminAuth'
 
 const API_BASE   = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
@@ -141,6 +141,7 @@ export default function TableDashboard() {
       setTables(res.data?.data ?? [])
     } catch (err) {
       console.error('[TableDashboard] loadTables', err)
+      showToast('❌ โหลดข้อมูลโต๊ะไม่สำเร็จ', 'error')
     } finally {
       setLoading(false)
     }
@@ -174,10 +175,13 @@ export default function TableDashboard() {
   /* ── Admin: clear table ── */
   const handleClear = async (tableId) => {
     setClearing(tableId)
+    // Optimistic update
+    setTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'vacant', current_customers: 0 } : t))
     try {
-      await axios.put(`${API_BASE}/api/tables/${tableId}/status`, { status: 'vacant' })
+      await axios.put(`${API_BASE}/api/tables/${tableId}/status`, { status: 'vacant' }, { headers: getAuthHeaders() })
       showToast('🧹 เคลียร์โต๊ะเรียบร้อย', 'success')
     } catch {
+      loadTables()
       showToast('❌ เคลียร์โต๊ะไม่สำเร็จ', 'error')
     } finally {
       setClearing(null)
@@ -186,10 +190,13 @@ export default function TableDashboard() {
 
   /* ── Admin: set status manually ── */
   const handleSetStatus = async (tableId, status) => {
+    // Optimistic update
+    setTables(prev => prev.map(t => t.id === tableId ? { ...t, status, current_customers: status === 'vacant' ? 0 : t.current_customers } : t))
     try {
-      await axios.put(`${API_BASE}/api/tables/${tableId}/status`, { status })
+      await axios.put(`${API_BASE}/api/tables/${tableId}/status`, { status }, { headers: getAuthHeaders() })
       showToast(`✅ เปลี่ยนสถานะเป็น "${STATUS_CONFIG[status]?.label}" แล้ว`, 'success')
     } catch {
+      loadTables()
       showToast('❌ เปลี่ยนสถานะไม่สำเร็จ', 'error')
     }
   }

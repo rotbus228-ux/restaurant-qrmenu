@@ -1,12 +1,22 @@
 const supabase = require('../config/supabase');
 
-const flat = (m) => ({ ...m, category_name: m.categories?.name, categories: undefined });
+const flat = (m) => ({
+  ...m,
+  category_name: m.categories?.name,
+  categories:    undefined,
+  options:       (m.menu_options || []).sort((a, b) => a.id - b.id),
+  menu_options:  undefined,
+});
 
 const menuController = {
   getAllMenus: async (req, res) => {
     try {
       const { category_id } = req.query;
-      let q = supabase.from('menus').select('*, categories(name)').order('category_id').order('name');
+      let q = supabase
+        .from('menus')
+        .select('*, categories(name), menu_options(id, name, extra_price)')
+        .order('category_id')
+        .order('name');
       if (category_id) q = q.eq('category_id', category_id);
       const { data, error } = await q;
       if (error) throw error;
@@ -65,7 +75,8 @@ const menuController = {
     try {
       const { data, error } = await supabase.from('menus')
         .insert({ category_id, name, description: description || null, price, image_url: image_url || null, is_available: !!is_available })
-        .select('*, categories(name)').single();
+        .select('*, categories(name), menu_options(id, name, extra_price)')
+        .single();
       if (error) throw error;
       res.status(201).json({ success: true, data: flat(data) });
     } catch (err) {
@@ -82,7 +93,9 @@ const menuController = {
         .update({ category_id, name, description: description || null, price, image_url: image_url || null, is_available: !!is_available, updated_at: new Date() })
         .eq('id', id);
       if (error) throw error;
-      const { data: menu } = await supabase.from('menus').select('*, categories(name)').eq('id', id).single();
+      const { data: menu } = await supabase.from('menus')
+        .select('*, categories(name), menu_options(id, name, extra_price)')
+        .eq('id', id).single();
       if (!menu) return res.status(404).json({ success: false, message: 'ไม่พบเมนู' });
       const io = req.app.get('io');
       if (io && is_available !== undefined) io.emit('menu_availability_update', { menu_id: Number(id), is_available: !!menu.is_available });
@@ -117,6 +130,30 @@ const menuController = {
       res.json({ success: true, message: 'ลบเมนูสำเร็จ' });
     } catch (err) {
       console.error('[deleteMenu]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  /* ── Menu Options: replace all options for a menu ── */
+  setMenuOptions: async (req, res) => {
+    const { id } = req.params;
+    const { options } = req.body;
+    if (!Array.isArray(options)) return res.status(400).json({ success: false, message: 'options ต้องเป็น array' });
+    try {
+      await supabase.from('menu_options').delete().eq('menu_id', id);
+      if (options.length > 0) {
+        const rows = options
+          .filter(o => o.name?.trim())
+          .map(o => ({ menu_id: Number(id), name: o.name.trim(), extra_price: Number(o.extra_price) || 0 }));
+        if (rows.length) {
+          const { error } = await supabase.from('menu_options').insert(rows);
+          if (error) throw error;
+        }
+      }
+      const { data } = await supabase.from('menu_options').select('id, name, extra_price').eq('menu_id', id).order('id');
+      res.json({ success: true, data: data || [] });
+    } catch (err) {
+      console.error('[setMenuOptions]', err);
       res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
     }
   },

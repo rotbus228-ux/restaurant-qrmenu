@@ -5,7 +5,7 @@ import { getAuthHeaders, adminLogout, handleAuthError } from '../../utils/adminA
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
-const EMPTY_FORM = { category_id: '', name: '', description: '', price: '', image_url: '', is_available: true }
+const EMPTY_FORM = { category_id: '', name: '', description: '', price: '', image_url: '', is_available: true, options: [] }
 
 /* ─── Toggle Switch ─────────────────────────────────────────────────────────── */
 function ToggleSwitch({ checked, onChange, disabled }) {
@@ -89,6 +89,47 @@ function CategoryManageSection({ categories, onAdd, onDelete, disabled }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/* ─── OptionAdder ────────────────────────────────────────────────────────────── */
+function OptionAdder({ onAdd }) {
+  const [name,  setName]  = useState('')
+  const [price, setPrice] = useState('')
+
+  const handleAdd = () => {
+    if (!name.trim()) return
+    onAdd({ name: name.trim(), extra_price: Number(price) || 0 })
+    setName('')
+    setPrice('')
+  }
+
+  return (
+    <div className="flex gap-2">
+      <input
+        type="text"
+        value={name}
+        onChange={e => setName(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && handleAdd()}
+        placeholder="เช่น เพิ่มไข่ดาว, พิเศษ"
+        className="flex-1 border-2 border-dashed border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 focus:outline-none transition-all"
+      />
+      <input
+        type="number"
+        min={0}
+        value={price}
+        onChange={e => setPrice(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && handleAdd()}
+        placeholder="฿0"
+        className="w-20 border-2 border-dashed border-slate-200 rounded-xl px-3 py-2 text-sm text-center focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 focus:outline-none transition-all"
+      />
+      <button
+        type="button"
+        onClick={handleAdd}
+        disabled={!name.trim()}
+        className="px-3 py-2 bg-indigo-100 hover:bg-indigo-200 disabled:opacity-40 text-indigo-700 rounded-xl text-sm font-black transition-colors"
+      >➕</button>
     </div>
   )
 }
@@ -218,6 +259,36 @@ function MenuModal({ open, mode, formData, categories, saving, onChange, onSave,
                 >✕</button>
               </div>
             )}
+          </div>
+
+          {/* ── Options ── */}
+          <div>
+            <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
+              ⚙️ ตัวเลือกพิเศษ
+              <span className="text-slate-400 font-medium normal-case">(เช่น เพิ่มไข่ดาว, พิเศษ)</span>
+            </label>
+
+            {/* existing options */}
+            {(formData.options || []).length > 0 && (
+              <div className="space-y-1.5 mb-2">
+                {(formData.options || []).map((opt, i) => (
+                  <div key={i} className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2 ring-1 ring-slate-200">
+                    <span className="flex-1 text-sm font-bold text-slate-700">{opt.name}</span>
+                    <span className="text-sm font-black text-orange-600">
+                      {Number(opt.extra_price) > 0 ? `+฿${opt.extra_price}` : 'ฟรี'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onChange('options', (formData.options || []).filter((_, j) => j !== i))}
+                      className="w-6 h-6 rounded-full bg-rose-100 hover:bg-rose-200 text-rose-500 flex items-center justify-center text-xs font-black transition-colors"
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* add new option */}
+            <OptionAdder onAdd={(opt) => onChange('options', [...(formData.options || []), opt])} />
           </div>
 
           <div className={`flex items-center justify-between rounded-2xl px-4 py-3 ring-1 ${formData.is_available ? 'bg-emerald-50 ring-emerald-200' : 'bg-rose-50 ring-rose-200'}`}>
@@ -351,6 +422,7 @@ export default function MenuManage() {
       price:        menu.price?.toString() || '',
       image_url:    menu.image_url || '',
       is_available: menu.is_available !== false && menu.is_available !== 0,
+      options:      Array.isArray(menu.options) ? menu.options.map(o => ({ name: o.name, extra_price: Number(o.extra_price) || 0 })) : [],
     })
     setModal({ open: true, mode: 'edit', menu })
   }
@@ -370,13 +442,25 @@ export default function MenuManage() {
         image_url:    formData.image_url.trim() || null,
         is_available: formData.is_available,
       }
+      const headers = getAuthHeaders()
+      let savedMenu
       if (modal.mode === 'add') {
-        const res = await axios.post(`${API_BASE}/api/menus`, payload, { headers: getAuthHeaders() })
-        setMenus(prev => [...prev, res.data.data])
+        const res = await axios.post(`${API_BASE}/api/menus`, payload, { headers })
+        savedMenu = res.data.data
+      } else {
+        const res = await axios.put(`${API_BASE}/api/menus/${modal.menu.id}`, payload, { headers })
+        savedMenu = res.data.data
+      }
+      // Save options
+      const menuId = savedMenu.id
+      const optRes = await axios.put(`${API_BASE}/api/menus/${menuId}/options`, { options: formData.options || [] }, { headers })
+      savedMenu = { ...savedMenu, options: optRes.data.data || [] }
+
+      if (modal.mode === 'add') {
+        setMenus(prev => [...prev, savedMenu])
         showToast(`✅ เพิ่มเมนู "${payload.name}" สำเร็จ`, 'success')
       } else {
-        const res = await axios.put(`${API_BASE}/api/menus/${modal.menu.id}`, payload, { headers: getAuthHeaders() })
-        setMenus(prev => prev.map(m => m.id === modal.menu.id ? res.data.data : m))
+        setMenus(prev => prev.map(m => m.id === menuId ? savedMenu : m))
         showToast(`✅ แก้ไขเมนู "${payload.name}" สำเร็จ`, 'success')
       }
       closeModal()
