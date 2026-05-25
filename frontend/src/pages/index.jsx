@@ -2,26 +2,39 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
-const API_BASE        = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-const RESTAURANT_NAME = 'อร่อยจัง แซ่บเวอร์'
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 export default function WelcomePage() {
-  const [tableId,       setTableId]       = useState('')
-  const [customerCount, setCustomerCount] = useState(1)
-  const [tables,        setTables]        = useState([])  // [{ id, table_number, status }]
-  const [loadingTables, setLoadingTables] = useState(true)
+  const [tableId,              setTableId]              = useState('')
+  const [customerCount,        setCustomerCount]        = useState(1)
+  const [tables,               setTables]               = useState([])  // [{ id, table_number, status }]
+  const [loadingTables,        setLoadingTables]        = useState(true)
+  const [showOccupiedWarning,  setShowOccupiedWarning]  = useState(false)
+  const [pendingOccupiedTable, setPendingOccupiedTable] = useState(null)
+  const [restaurantName,       setRestaurantName]       = useState('ร้านอาหารของเรา')
   const navigate = useNavigate()
 
-  /* ── โหลดสถานะโต๊ะทั้งหมด ── */
+  /* ── โหลดสถานะโต๊ะทั้งหมด + ชื่อร้าน ── */
   useEffect(() => {
     axios.get(`${API_BASE}/api/tables`)
       .then(res => setTables(res.data?.data ?? []))
       .catch(() => {})
       .finally(() => setLoadingTables(false))
+    axios.get(`${API_BASE}/api/settings`)
+      .then(res => {
+        const name = res.data?.data?.restaurant_name
+        if (name) setRestaurantName(name)
+      })
+      .catch(() => {})
   }, [])
 
   const tableStatus  = (n) => tables.find(t => String(t.table_number) === String(n))?.status
   const isOccupied   = (n) => { const s = tableStatus(n); return s === 'occupied' || s === 'paid' }
+
+  const confirmOccupied = () => {
+    setShowOccupiedWarning(false)
+    navigate(`/table/${pendingOccupiedTable}`, { state: { customerCount: Number(customerCount) } })
+  }
 
   const handleConfirm = async () => {
     if (!tableId || isOccupied(tableId)) return
@@ -34,6 +47,49 @@ export default function WelcomePage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-amber-400 via-orange-500 to-rose-600 flex flex-col items-center justify-center p-6">
+
+      {/* ─── Occupied Table Warning Modal ─── */}
+      {showOccupiedWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-5">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => setShowOccupiedWarning(false)} />
+          <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden animate-[slideUp_0.3s_cubic-bezier(0.16,1,0.3,1)]">
+
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-500 to-rose-600 px-6 py-5 text-center">
+              <div className="text-5xl mb-2">⚠️</div>
+              <h2 className="text-lg font-black text-white">โต๊ะนี้มีลูกค้าใช้งานอยู่!</h2>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div className="bg-red-50 rounded-2xl px-4 py-3.5 ring-1 ring-red-100 text-center">
+                <p className="text-2xl font-black text-red-600 mb-1">โต๊ะที่ {pendingOccupiedTable}</p>
+                <p className="text-xs text-red-500 font-bold">กำลังมีลูกค้านั่งอยู่</p>
+              </div>
+
+              <p className="text-sm text-stone-600 leading-relaxed text-center">
+                กรุณาตรวจสอบหมายเลขโต๊ะที่คุณนั่งอยู่ให้ดีอีกครั้ง<br />
+                <span className="font-bold text-stone-800">หากคุณนั่งโต๊ะนี้จริงๆ</span> และโต๊ะยังแสดงว่าไม่ว่าง<br />
+                กรุณาแจ้งพนักงานหรือกดยืนยันเพื่อดำเนินการต่อ
+              </p>
+
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={() => setShowOccupiedWarning(false)}
+                  className="flex-1 py-3.5 rounded-2xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-sm transition-colors active:scale-95"
+                >
+                  ← ยกเลิก
+                </button>
+                <button
+                  onClick={confirmOccupied}
+                  className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-orange-500 to-rose-500 text-white font-black text-sm shadow-lg shadow-orange-300/50 active:scale-95 hover:shadow-xl transition-all"
+                >
+                  ✅ ยืนยัน ฉันนั่งโต๊ะนี้
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── Decorative Blobs ─── */}
       <div className="pointer-events-none absolute -top-32 -left-32 w-96 h-96 bg-yellow-300/30 rounded-full blur-3xl animate-pulse" />
@@ -53,7 +109,7 @@ export default function WelcomePage() {
           </div>
         </div>
         <h1 className="mt-5 text-4xl font-black text-white tracking-tight drop-shadow-lg">
-          {RESTAURANT_NAME}
+          {restaurantName}
         </h1>
         <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-sm ring-1 ring-white/20">
           <span className="w-1.5 h-1.5 rounded-full bg-green-300 animate-pulse" />
@@ -113,14 +169,20 @@ export default function WelcomePage() {
                     <button
                       key={n}
                       type="button"
-                      disabled={isOcc}
-                      onClick={() => !isOcc && setTableId(String(n))}
+                      onClick={() => {
+                        if (isOcc) {
+                          setPendingOccupiedTable(n)
+                          setShowOccupiedWarning(true)
+                        } else {
+                          setTableId(String(n))
+                        }
+                      }}
                       className={`h-10 rounded-xl text-xs font-black transition-all
                         ${tableId === String(n)
                           ? 'ring-2 ring-orange-500 scale-110 shadow-lg shadow-orange-200'
                           : ''}
                         ${isOcc
-                          ? 'bg-red-100 text-red-400 cursor-not-allowed opacity-70'
+                          ? 'bg-red-100 text-red-500 hover:bg-red-200 cursor-pointer active:scale-95'
                           : s === 'vacant' || !s
                             ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 cursor-pointer'
                             : 'bg-gray-100 text-gray-400 cursor-not-allowed'
@@ -214,8 +276,9 @@ export default function WelcomePage() {
 
       {/* ─── Inline keyframes ─── */}
       <style>{`
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes wave   { 0%,60%,100% { transform: rotate(0deg); } 10%,30% { transform: rotate(14deg); } 20% { transform: rotate(-8deg); } 40% { transform: rotate(-4deg); } 50% { transform: rotate(10deg); } }
+        @keyframes fadeIn  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes wave    { 0%,60%,100% { transform: rotate(0deg); } 10%,30% { transform: rotate(14deg); } 20% { transform: rotate(-8deg); } 40% { transform: rotate(-4deg); } 50% { transform: rotate(10deg); } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
     </div>
   )

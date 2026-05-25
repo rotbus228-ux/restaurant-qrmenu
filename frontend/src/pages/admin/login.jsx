@@ -7,14 +7,18 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 export default function AdminLoginPage() {
   const navigate = useNavigate()
-  const [email,    setEmail]    = useState('')
-  const [password, setPassword] = useState('')
-  const [error,    setError]    = useState('')
-  const [loading,  setLoading]  = useState(false)
-  const [showPass, setShowPass] = useState(false)
+  const [email,          setEmail]          = useState('')
+  const [password,       setPassword]       = useState('')
+  const [error,          setError]          = useState('')
+  const [loading,        setLoading]        = useState(false)
+  const [showPass,       setShowPass]       = useState(false)
+  const [restaurantName, setRestaurantName] = useState('ร้านอาหารของเรา')
 
   useEffect(() => {
     if (isAdminLoggedIn()) navigate('/admin/dashboard', { replace: true })
+    axios.get(`${API_BASE}/api/settings`)
+      .then(res => { const name = res.data?.data?.restaurant_name; if (name) setRestaurantName(name) })
+      .catch(() => {})
   }, [navigate])
 
   const handleSubmit = async (e) => {
@@ -58,7 +62,7 @@ export default function AdminLoginPage() {
           </div>
         </div>
         <h1 className="mt-5 text-3xl font-black text-white tracking-tight drop-shadow-lg">Admin Portal</h1>
-        <p className="mt-1.5 text-slate-400 text-sm font-medium">อร่อยจัง แซ่บเวอร์ · ระบบหลังบ้าน</p>
+        <p className="mt-1.5 text-slate-400 text-sm font-medium">{restaurantName} · ระบบหลังบ้าน</p>
       </div>
 
       {/* Card */}

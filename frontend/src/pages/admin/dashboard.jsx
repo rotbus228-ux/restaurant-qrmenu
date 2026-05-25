@@ -274,7 +274,7 @@ function Leaderboard({ topMenus }) {
             const style = MEDAL_STYLES[i] || MEDAL_STYLES[4]
             const pct   = Math.round((Number(menu.total_qty) / maxQty) * 100)
             return (
-              <div key={menu.id} className="flex items-center gap-3 bg-slate-900/40 rounded-xl px-3 py-2 ring-1 ring-slate-700/40">
+              <div key={menu.id ?? `deleted-${menu.name}`} className="flex items-center gap-3 bg-slate-900/40 rounded-xl px-3 py-2 ring-1 ring-slate-700/40">
                 <div className={`w-9 h-9 rounded-full bg-slate-900 flex items-center justify-center text-xl ring-2 ${style.ring} shadow-md flex-shrink-0`}>
                   {style.medal}
                 </div>
@@ -315,6 +315,7 @@ export default function AdminDashboard() {
   const [topMenus,   setTopMenus]   = useState([])
   const [showSidebar,    setShowSidebar]    = useState(true)
   const [closingTableId, setClosingTableId] = useState(null)
+  const [restaurantName, setRestaurantName] = useState('ร้านอาหารของเรา')
   const socketRef = useRef(null)
 
   const logout = () => { adminLogout(); navigate('/', { replace: true }) }
@@ -342,6 +343,9 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchTodayStats()
     fetchTopMenus()
+    axios.get(`${API_BASE}/settings`)
+      .then(res => { const name = res.data?.data?.restaurant_name; if (name) setRestaurantName(name) })
+      .catch(() => {})
     const statsId    = setInterval(fetchTodayStats, 60000)
     const topMenusId = setInterval(fetchTopMenus, 60000)
     return () => {
@@ -510,7 +514,7 @@ export default function AdminDashboard() {
               Kitchen Display
               <span className="text-[10px] font-black bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-md ring-1 ring-emerald-500/30 tracking-wider">LIVE</span>
             </h1>
-            <p className="text-xs text-slate-400 leading-none mt-1">อร่อยจัง แซ่บเวอร์ · FIFO Queue</p>
+            <p className="text-xs text-slate-400 leading-none mt-1">{restaurantName} · FIFO Queue</p>
           </div>
         </div>
 

@@ -134,8 +134,10 @@ export default function TableDashboard() {
   const [adding,      setAdding]      = useState(false)
   const [deleting,    setDeleting]    = useState(false)
   const [toast,       setToast]       = useState(null)
-  const [qrUrl,       setQrUrl]       = useState('')
-  const [qrUploading, setQrUploading] = useState(false)
+  const [qrUrl,         setQrUrl]         = useState('')
+  const [qrUploading,   setQrUploading]   = useState(false)
+  const [restaurantName, setRestaurantName] = useState('')
+  const [savingName,    setSavingName]    = useState(false)
   const qrInputRef = useRef(null)
   const socketRef  = useRef(null)
 
@@ -155,7 +157,10 @@ export default function TableDashboard() {
   useEffect(() => {
     loadTables()
     axios.get(`${API_BASE}/api/settings`)
-      .then(res => setQrUrl(res.data?.data?.payment_qr_url || ''))
+      .then(res => {
+        setQrUrl(res.data?.data?.payment_qr_url || '')
+        setRestaurantName(res.data?.data?.restaurant_name || '')
+      })
       .catch(() => {})
   }, [])
 
@@ -274,6 +279,20 @@ export default function TableDashboard() {
       showToast('🗑️ ลบ QR สำเร็จ', 'success')
     } catch {
       showToast('❌ ลบ QR ไม่สำเร็จ', 'error')
+    }
+  }
+
+  /* ── Admin: save restaurant name ── */
+  const handleSaveName = async () => {
+    if (!restaurantName.trim()) return
+    setSavingName(true)
+    try {
+      await axios.put(`${API_BASE}/api/settings/restaurant_name`, { value: restaurantName.trim() }, { headers: getAuthHeaders() })
+      showToast('✅ บันทึกชื่อร้านสำเร็จ', 'success')
+    } catch {
+      showToast('❌ บันทึกชื่อร้านไม่สำเร็จ', 'error')
+    } finally {
+      setSavingName(false)
     }
   }
 
@@ -421,6 +440,35 @@ export default function TableDashboard() {
             ))}
           </div>
         )}
+
+        {/* ── Restaurant Name Settings ── */}
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+          <h2 className="text-sm font-black text-slate-700 flex items-center gap-2 mb-4">
+            <span className="text-lg">🏪</span> ชื่อร้านอาหาร
+          </h2>
+          <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+            ชื่อร้านจะแสดงในหน้าเลือกโต๊ะ หน้าสั่งอาหาร และหน้า Login
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={restaurantName}
+              onChange={e => setRestaurantName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSaveName()}
+              placeholder="เช่น อร่อยจัง แซ่บเวอร์"
+              className="flex-1 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm font-bold
+                focus:outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 transition-all"
+            />
+            <button
+              onClick={handleSaveName}
+              disabled={savingName || !restaurantName.trim()}
+              className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-orange-500 to-rose-500 text-white text-sm font-black
+                shadow-md shadow-orange-300/40 hover:shadow-lg active:scale-95 disabled:opacity-50 transition-all"
+            >
+              {savingName ? '⏳...' : '💾 บันทึก'}
+            </button>
+          </div>
+        </div>
 
         {/* ── QR PromptPay Settings ── */}
         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">

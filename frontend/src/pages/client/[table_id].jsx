@@ -6,7 +6,6 @@ import axios from 'axios'
 const _BASE           = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 const API_BASE        = `${_BASE}/api`
 const SOCKET_URL      = _BASE
-const RESTAURANT_NAME = 'อร่อยจัง แซ่บเวอร์'
 
 /* ── ตัวเลือกเสริมแยกตามประเภทหมวดหมู่ ──────────────────────────────────── */
 const CATEGORY_CONFIGS = {
@@ -672,6 +671,7 @@ export default function TablePage() {
   const [menus,          setMenus]          = useState([])
   const [tables,         setTables]         = useState([])
   const [paymentQrUrl,   setPaymentQrUrl]   = useState('')
+  const [restaurantName, setRestaurantName] = useState('ร้านอาหารของเรา')
   const [menuLoading,    setMenuLoading]    = useState(true)
   const [activeCat,      setActiveCat]      = useState(0)
 
@@ -760,7 +760,9 @@ export default function TablePage() {
         setTables(tablesResult.value.data?.data ?? [])
       }
       if (settingsResult.status === 'fulfilled') {
-        setPaymentQrUrl(settingsResult.value.data?.data?.payment_qr_url || '')
+        const s = settingsResult.value.data?.data || {}
+        setPaymentQrUrl(s.payment_qr_url || '')
+        if (s.restaurant_name) setRestaurantName(s.restaurant_name)
       }
     }).finally(() => setMenuLoading(false))
   }, [])
@@ -962,7 +964,7 @@ export default function TablePage() {
               <div className="relative w-12 h-12 bg-white/25 backdrop-blur-xl rounded-2xl flex items-center justify-center text-2xl ring-1 ring-white/40 shadow-lg">🍜</div>
             </div>
             <div className="min-w-0">
-              <h1 className="text-lg font-black tracking-tight drop-shadow truncate">{RESTAURANT_NAME}</h1>
+              <h1 className="text-lg font-black tracking-tight drop-shadow truncate">{restaurantName}</h1>
               <p className="text-xs text-orange-50/90 font-medium">อาหารไทยต้นตำรับ • รสชาติจัดจ้าน</p>
             </div>
           </div>
