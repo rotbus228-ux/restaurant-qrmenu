@@ -134,12 +134,25 @@ function OptionAdder({ onAdd }) {
   )
 }
 
+/* ─── Quick-preset options ────────────────────────────────────────────────── */
+const OPTION_PRESETS = [
+  { name: 'เพิ่มไข่ดาว',   extra_price: 10  },
+  { name: 'พิเศษ',         extra_price: 15  },
+  { name: 'ใส่หม้อไฟ',     extra_price: 50  },
+  { name: 'ข้าวเปล่า',     extra_price: 15  },
+  { name: 'ลูกชิ้น',       extra_price: 15  },
+  { name: 'วิปครีม',       extra_price: 15  },
+  { name: 'ไม่ใส่ผัก',     extra_price: 0   },
+  { name: 'ไม่เผ็ด',       extra_price: 0   },
+]
+
 /* ─── Add/Edit Modal ─────────────────────────────────────────────────────────── */
 function MenuModal({ open, mode, formData, categories, saving, onChange, onSave, onClose }) {
-  if (!open) return null
-
-  const isEdit = mode === 'edit'
+  /* ⚠️ hooks ต้องอยู่บนสุดก่อน early-return เสมอ */
+  const isEdit   = mode === 'edit'
   const [uploading, setUploading] = useState(false)
+
+  if (!open) return null
 
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0]
@@ -265,29 +278,75 @@ function MenuModal({ open, mode, formData, categories, saving, onChange, onSave,
           <div>
             <label className="text-xs font-black text-slate-700 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
               ⚙️ ตัวเลือกพิเศษ
-              <span className="text-slate-400 font-medium normal-case">(เช่น เพิ่มไข่ดาว, พิเศษ)</span>
+              <span className="text-slate-400 font-medium normal-case">(แก้ไขได้เลย)</span>
             </label>
 
-            {/* existing options */}
+            {/* existing options — inline editable */}
             {(formData.options || []).length > 0 && (
               <div className="space-y-1.5 mb-2">
                 {(formData.options || []).map((opt, i) => (
-                  <div key={i} className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2 ring-1 ring-slate-200">
-                    <span className="flex-1 text-sm font-bold text-slate-700">{opt.name}</span>
-                    <span className="text-sm font-black text-orange-600">
-                      {Number(opt.extra_price) > 0 ? `+฿${opt.extra_price}` : 'ฟรี'}
-                    </span>
+                  <div key={i} className="flex items-center gap-1.5 bg-slate-50 rounded-xl px-2 py-1.5 ring-1 ring-slate-200 hover:ring-indigo-300 transition-all">
+                    <input
+                      type="text"
+                      value={opt.name}
+                      onChange={e => {
+                        const next = [...(formData.options || [])]
+                        next[i] = { ...next[i], name: e.target.value }
+                        onChange('options', next)
+                      }}
+                      placeholder="ชื่อตัวเลือก"
+                      className="flex-1 text-sm font-bold text-slate-700 bg-transparent border border-transparent hover:border-slate-300 focus:border-indigo-400 focus:bg-white focus:outline-none rounded-lg px-2 py-1 min-w-0 transition-all"
+                    />
+                    <div className="relative flex-shrink-0">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold pointer-events-none">+฿</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={opt.extra_price}
+                        onChange={e => {
+                          const next = [...(formData.options || [])]
+                          next[i] = { ...next[i], extra_price: Number(e.target.value) || 0 }
+                          onChange('options', next)
+                        }}
+                        className="w-[72px] text-sm font-black text-orange-600 bg-transparent border border-transparent hover:border-slate-300 focus:border-orange-400 focus:bg-white focus:outline-none rounded-lg pl-6 pr-2 py-1 text-right [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none transition-all"
+                      />
+                    </div>
                     <button
                       type="button"
                       onClick={() => onChange('options', (formData.options || []).filter((_, j) => j !== i))}
-                      className="w-6 h-6 rounded-full bg-rose-100 hover:bg-rose-200 text-rose-500 flex items-center justify-center text-xs font-black transition-colors"
+                      className="w-6 h-6 rounded-full bg-rose-100 hover:bg-rose-200 text-rose-500 flex items-center justify-center text-xs font-black transition-colors flex-shrink-0"
                     >✕</button>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* add new option */}
+            {/* Quick presets */}
+            <div className="mb-2">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">⚡ เพิ่มด่วน</p>
+              <div className="flex flex-wrap gap-1.5">
+                {OPTION_PRESETS.map(preset => {
+                  const added = (formData.options || []).some(o => o.name === preset.name)
+                  return (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      disabled={added}
+                      onClick={() => onChange('options', [...(formData.options || []), { ...preset }])}
+                      className={`text-[11px] font-black px-2.5 py-1 rounded-full border transition-all active:scale-95 ${
+                        added
+                          ? 'bg-indigo-100 border-indigo-200 text-indigo-300 cursor-not-allowed'
+                          : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-700'
+                      }`}
+                    >
+                      {added ? '✓ ' : '＋'}{preset.name}{preset.extra_price > 0 ? ` +฿${preset.extra_price}` : ''}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* add custom option */}
             <OptionAdder onAdd={(opt) => onChange('options', [...(formData.options || []), opt])} />
           </div>
 

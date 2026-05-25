@@ -1094,15 +1094,23 @@ export default function TablePage() {
 
                         {/* Price row + add button */}
                         <div className="flex items-center justify-between mt-1.5">
-                          <div className="flex items-baseline gap-1">
+                          <div className="flex items-baseline gap-1.5 flex-wrap">
                             <span className={`font-black text-base leading-none ${isAvail ? 'bg-gradient-to-br from-orange-600 to-rose-600 bg-clip-text text-transparent' : 'text-stone-400'}`}>
                               ฿{menu.price}
                             </span>
-                            {isAvail && <span className="text-[9px] text-stone-400 font-semibold">เริ่มต้น</span>}
+                            {isAvail && Array.isArray(menu.options) && menu.options.length > 0 && (
+                              <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-orange-50 text-orange-500 ring-1 ring-orange-200">
+                                ⚙️ ปรับแต่งได้
+                              </span>
+                            )}
                           </div>
                           {isAvail && (
                             <button
-                              onClick={() => openOptionModal(menu)}
+                              onClick={() => {
+                                const opts = Array.isArray(menu.options) ? menu.options : []
+                                if (opts.length === 0) addCartItem(menu.id, [], '')
+                                else openOptionModal(menu)
+                              }}
                               className="w-8 h-8 flex-shrink-0 bg-gradient-to-br from-orange-500 to-rose-500 text-white rounded-full flex items-center justify-center text-xl font-black shadow-md shadow-orange-200 active:scale-90 hover:scale-110 hover:shadow-lg hover:shadow-orange-300/50 transition-all ring-2 ring-white"
                             >+</button>
                           )}
@@ -1161,7 +1169,11 @@ export default function TablePage() {
 
                         {isAvail && (
                           <button
-                            onClick={() => openOptionModal(menu)}
+                            onClick={() => {
+                              const opts = Array.isArray(menu.options) ? menu.options : []
+                              if (opts.length === 0) addCartItem(menu.id, [], '')
+                              else openOptionModal(menu)
+                            }}
                             className="absolute bottom-2 right-2 w-10 h-10 bg-gradient-to-br from-orange-500 to-rose-500 text-white rounded-full flex items-center justify-center text-2xl font-black shadow-lg shadow-orange-300/50 active:scale-90 hover:scale-110 transition-transform ring-2 ring-white/30"
                           >+</button>
                         )}
@@ -1176,12 +1188,14 @@ export default function TablePage() {
                         <p className={`text-sm font-bold line-clamp-2 leading-snug mb-1.5 min-h-[2.5rem] ${isAvail ? 'text-stone-800' : 'text-stone-400'}`}>
                           {menu.name}
                         </p>
-                        <div className="flex items-baseline justify-between">
+                        <div className="flex items-baseline justify-between gap-1">
                           <span className={`font-black text-lg ${isAvail ? 'bg-gradient-to-br from-orange-600 to-rose-600 bg-clip-text text-transparent' : 'text-stone-400'}`}>
                             ฿{menu.price}
                           </span>
-                          {isAvail && (
-                            <span className="text-[10px] text-stone-400 font-semibold">เริ่มต้น</span>
+                          {isAvail && Array.isArray(menu.options) && menu.options.length > 0 && (
+                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-orange-50 text-orange-500 ring-1 ring-orange-200 flex-shrink-0">
+                              ⚙️
+                            </span>
                           )}
                         </div>
                       </div>
