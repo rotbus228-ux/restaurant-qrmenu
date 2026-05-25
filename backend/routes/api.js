@@ -37,6 +37,7 @@ router.put   ('/menus/:id',              adminAuth, menuController.updateMenu);
 router.delete('/menus/:id',              adminAuth, menuController.deleteMenu);
 
 // ─── Orders ──────────────────────────────────────────────────────────────────
+router.get  ('/tables/:id/orders', orderController.getTableOrders);        // public — ลูกค้าดูออเดอร์ตัวเองได้
 router.get  ('/orders',            adminAuth, orderController.getAllOrders);
 router.post ('/orders',            orderController.createOrder);                     // public — ลูกค้าสั่งได้
 router.put  ('/orders/:id/status', adminAuth, orderController.updateOrderStatus);

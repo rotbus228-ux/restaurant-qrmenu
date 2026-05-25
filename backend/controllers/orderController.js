@@ -150,6 +150,36 @@ const orderController = {
     }
   },
 
+  getTableOrders: async (req, res) => {
+    const { id } = req.params;
+    try {
+      const { data: orders, error } = await supabase
+        .from('orders')
+        .select('*, tables(table_number), order_items(*, menus(name))')
+        .eq('table_id', Number(id))
+        .not('status', 'in', '("completed","cancelled")')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      const result = (orders || []).map(o => ({
+        ...o,
+        table_number: o.tables?.table_number,
+        tables: undefined,
+        items: (o.order_items || []).map(item => ({
+          ...item,
+          name: item.ordered_menu_name || item.menus?.name,
+          menus: undefined,
+          options: Array.isArray(item.options) ? item.options : [],
+          note: item.note || '',
+        })),
+        order_items: undefined,
+      }));
+      res.json({ success: true, data: result });
+    } catch (err) {
+      console.error('[getTableOrders]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
   getTodayStats: async (req, res) => {
     try {
       const { data, error } = await supabase.rpc('get_today_stats');

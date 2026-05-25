@@ -675,7 +675,12 @@ export default function TablePage() {
   const [menuLoading,    setMenuLoading]    = useState(true)
   const [activeCat,      setActiveCat]      = useState(0)
 
-  const [cart,          setCart]          = useState([])
+  const [cart,          setCart]          = useState(() => {
+    try {
+      const saved = localStorage.getItem(`qrmenu_cart_${tableId}`)
+      return saved ? JSON.parse(saved) : []
+    } catch { return [] }
+  })
 
   const [orders,        setOrders]        = useState([])
   const [ordersLoaded,  setOrdersLoaded]  = useState(false)
@@ -690,6 +695,17 @@ export default function TablePage() {
   const [requestingCheckout,  setRequestingCheckout]  = useState(false)
 
   const socketRef = useRef(null)
+
+  /* ── Persist cart to localStorage ── */
+  useEffect(() => {
+    try {
+      if (cart.length > 0) {
+        localStorage.setItem(`qrmenu_cart_${effectiveTableId}`, JSON.stringify(cart))
+      } else {
+        localStorage.removeItem(`qrmenu_cart_${effectiveTableId}`)
+      }
+    } catch {}
+  }, [cart, effectiveTableId])
 
   /* ── Socket ── */
   useEffect(() => {
@@ -717,6 +733,7 @@ export default function TablePage() {
           ? { ...o, status: 'completed' }
           : o
       ))
+      try { localStorage.removeItem(`qrmenu_cart_${tableId}`) } catch {}
     })
 
     return () => socket.disconnect()
@@ -748,25 +765,23 @@ export default function TablePage() {
     }).finally(() => setMenuLoading(false))
   }, [])
 
-  /* ── Fetch orders ── */
+  /* ── Fetch orders (public endpoint, รันทันทีที่โหลดหน้า) ── */
   useEffect(() => {
-    if (activeTab === 'orders' && !ordersLoaded) {
-      setOrdersLoading(true)
-      axios.get(`${API_BASE}/orders?table_id=${effectiveTableId}`)
-        .then(r => {
-          if (r.data?.data) {
-            setOrders(prev => {
-              const existingIds = new Set(prev.map(o => o.id).filter(Boolean))
-              const serverOrders = r.data.data.filter(o => !existingIds.has(o.id))
-              return [...prev, ...serverOrders]
-            })
-          }
-          setOrdersLoaded(true)
-        })
-        .catch(() => setOrdersLoaded(true))
-        .finally(() => setOrdersLoading(false))
-    }
-  }, [activeTab, ordersLoaded, effectiveTableId])
+    setOrdersLoading(true)
+    axios.get(`${API_BASE}/tables/${effectiveTableId}/orders`)
+      .then(r => {
+        if (r.data?.data) {
+          setOrders(prev => {
+            const existingIds = new Set(prev.map(o => o.id).filter(Boolean))
+            const incoming = r.data.data.filter(o => !existingIds.has(o.id))
+            return [...incoming, ...prev]
+          })
+        }
+        setOrdersLoaded(true)
+      })
+      .catch(() => setOrdersLoaded(true))
+      .finally(() => setOrdersLoading(false))
+  }, [effectiveTableId])
 
   /* ── Derived ── */
   const filtered = activeCat === 0 ? menus : menus.filter(m => m.category_id === activeCat)
@@ -879,6 +894,7 @@ export default function TablePage() {
       }
 
       setCart([])
+      try { localStorage.removeItem(`qrmenu_cart_${effectiveTableId}`) } catch {}
       setShowCheckout(false)
       setActiveTab('orders')
     } catch (err) {
