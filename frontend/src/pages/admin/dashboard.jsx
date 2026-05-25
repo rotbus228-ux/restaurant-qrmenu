@@ -496,6 +496,9 @@ export default function AdminDashboard() {
           >
             {showSidebar ? '◀' : '▶'} Sidebar
           </button>
+          <Link to="/admin/tables" className="hidden sm:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-1.5 rounded-xl transition-colors ring-1 ring-slate-700">
+            🪑 สถานะโต๊ะ
+          </Link>
           <Link to="/admin/menu" className="hidden sm:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-1.5 rounded-xl transition-colors ring-1 ring-slate-700">
             📋 จัดการเมนู
           </Link>

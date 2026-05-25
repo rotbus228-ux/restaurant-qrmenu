@@ -212,7 +212,7 @@ export default function WelcomePage() {
           <span>Admin Dashboard</span>
           <svg className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/></svg>
         </a>
-        <a href="/admin/login" className="group inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 backdrop-blur-md ring-1 ring-white/20 text-white/80 text-sm font-medium hover:bg-white/20 hover:text-white transition-all">
+        <a href="/admin/tables" className="group inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 backdrop-blur-md ring-1 ring-white/20 text-white/80 text-sm font-medium hover:bg-white/20 hover:text-white transition-all">
           <span>🪑</span>
           <span>สถานะโต๊ะ</span>
           <svg className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/></svg>
