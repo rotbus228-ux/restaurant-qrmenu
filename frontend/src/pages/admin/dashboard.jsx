@@ -313,7 +313,8 @@ export default function AdminDashboard() {
   const [mobileTab,  setMobileTab]  = useState('pending')
   const [todayStats, setTodayStats] = useState({ totalCustomers: 0, totalOrders: 0, totalSales: 0 })
   const [topMenus,   setTopMenus]   = useState([])
-  const [showSidebar, setShowSidebar] = useState(true)
+  const [showSidebar,    setShowSidebar]    = useState(true)
+  const [closingTableId, setClosingTableId] = useState(null)
   const socketRef = useRef(null)
 
   const logout = () => { adminLogout(); navigate('/', { replace: true }) }
@@ -388,6 +389,19 @@ export default function AdminDashboard() {
       }
     })
 
+    socket.on('checkout_requested', ({ table_id, order_ids }) => {
+      setOrders(prev => prev.map(o =>
+        order_ids.includes(o.id) ? { ...o, status: 'request_checkout' } : o
+      ))
+      playAlert()
+    })
+
+    socket.on('table_closed', ({ table_id }) => {
+      setOrders(prev => prev.filter(o => o.table_id !== table_id))
+      fetchTodayStats()
+      fetchTopMenus()
+    })
+
     socket.on('new_order', (data) => {
       setOrders(prev => {
         const exists = prev.some(o => o.id && o.id === data.id)
@@ -405,7 +419,7 @@ export default function AdminDashboard() {
       .then(r => {
         if (r.data?.data) {
           const active = r.data.data.filter(o =>
-            ['pending', 'preparing', 'serving', 'served'].includes(o.status)
+            ['pending', 'preparing', 'serving', 'served', 'request_checkout'].includes(o.status)
           )
           setOrders(active)
         }
@@ -429,6 +443,21 @@ export default function AdminDashboard() {
     }
   }, [navigate])
 
+  /* ── Close table ── */
+  const handleCloseTable = useCallback(async (tableId) => {
+    setClosingTableId(tableId)
+    try {
+      await axios.post(`${API_BASE}/tables/${tableId}/close`, {}, { headers: getAuthHeaders() })
+      setOrders(prev => prev.filter(o => o.table_id !== tableId))
+      fetchTodayStats()
+      fetchTopMenus()
+    } catch (err) {
+      if (!handleAuthError(err, navigate)) alert('ไม่สามารถปิดโต๊ะได้ กรุณาลองใหม่')
+    } finally {
+      setClosingTableId(null)
+    }
+  }, [navigate, fetchTodayStats, fetchTopMenus])
+
   /* ── Derived — FIFO sort สำหรับ pending + preparing ── */
   const byFIFO = (a, b) => new Date(a.created_at) - new Date(b.created_at)
 
@@ -436,6 +465,15 @@ export default function AdminDashboard() {
   const preparing       = orders.filter(o => o.status === 'preparing')
   const serving         = orders.filter(o => o.status === 'serving')
   const served          = orders.filter(o => o.status === 'served')
+
+  const checkoutOrders  = orders.filter(o => o.status === 'request_checkout')
+  const checkoutByTable = checkoutOrders.reduce((acc, o) => {
+    const tid = o.table_id
+    if (!acc[tid]) acc[tid] = { table_id: tid, table_number: o.table_number ?? tid, orders: [] }
+    acc[tid].orders.push(o)
+    return acc
+  }, {})
+  const checkoutGroups = Object.values(checkoutByTable)
 
   const pendingSorted   = pending.slice().sort(byFIFO)
   const preparingSorted = preparing.slice().sort(byFIFO)
@@ -554,6 +592,41 @@ export default function AdminDashboard() {
           </button>
         ))}
       </div>
+
+      {/* ─── Checkout Requests Banner ─── */}
+      {checkoutGroups.length > 0 && (
+        <div className="relative px-4 py-3 border-b border-slate-800/50 bg-amber-500/10 backdrop-blur-sm flex-shrink-0 z-10">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-lg animate-pulse">🧾</span>
+            <span className="text-sm font-black text-amber-300">รอเช็คบิล</span>
+            <span className="bg-amber-500 text-white text-xs font-black px-2 py-0.5 rounded-full">{checkoutGroups.length} โต๊ะ</span>
+          </div>
+          <div className="flex gap-3 overflow-x-auto scrollbar-none pb-1">
+            {checkoutGroups.map(group => {
+              const total = group.orders.reduce((s, o) => s + Number(o.total_price || 0), 0)
+              const isClosing = closingTableId === group.table_id
+              return (
+                <div key={group.table_id} className="flex-shrink-0 bg-slate-900/60 rounded-2xl px-4 py-3 ring-1 ring-amber-500/40 flex items-center gap-4 min-w-[240px]">
+                  <div>
+                    <p className="text-sm font-black text-white flex items-center gap-1.5">
+                      🪑 โต๊ะ {group.table_number}
+                    </p>
+                    <p className="text-xs text-amber-300 font-bold mt-0.5">{group.orders.length} ออเดอร์</p>
+                    <p className="text-xl font-black text-emerald-400 mt-1">฿{total.toLocaleString()}</p>
+                  </div>
+                  <button
+                    onClick={() => handleCloseTable(group.table_id)}
+                    disabled={isClosing}
+                    className="ml-auto flex-shrink-0 bg-gradient-to-br from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white text-xs font-black px-3 py-2.5 rounded-xl shadow-lg shadow-emerald-900/40 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isClosing ? '⏳' : '✅ ยืนยันรับเงิน\n(ปิดโต๊ะ)'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ─── Main Layout (Kanban + Sidebar) ─── */}
       <main className="relative flex-1 overflow-hidden p-4 z-0">

@@ -410,10 +410,10 @@ function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effective
         </div>
 
         {/* Header */}
-        <div className="bg-gradient-to-r from-emerald-500 to-green-600 px-6 py-4">
+        <div className="bg-gradient-to-r from-orange-500 to-rose-500 px-6 py-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-black text-white flex items-center gap-2">
-              <span>🧾</span> สรุปและชำระเงิน
+              <span>🛒</span> ยืนยันสั่งอาหาร
             </h2>
             {!sending && (
               <button onClick={onClose}
@@ -466,33 +466,11 @@ function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effective
             </p>
           </div>
 
-          {/* QR Code */}
-          <div>
-            <p className="text-[11px] font-black text-stone-500 uppercase tracking-widest mb-4 flex items-center gap-1.5">
-              <span className="w-1 h-3 bg-emerald-500 rounded-full" /> สแกนจ่าย PromptPay
-            </p>
-            <div className="flex flex-col items-center justify-center bg-white rounded-2xl ring-1 ring-stone-200 py-8 px-4 shadow-sm">
-              {paymentQrUrl ? (
-                <img
-                  src={paymentQrUrl}
-                  alt="QR PromptPay"
-                  className="w-52 h-52 object-contain"
-                />
-              ) : (
-                <QRPlaceholder />
-              )}
-              <div className="mt-6 text-center space-y-1">
-                <p className="text-xs font-black text-stone-600">สแกน QR Code เพื่อชำระเงิน</p>
-                <p className="text-[10px] text-stone-400">รองรับทุกธนาคารและ Mobile Banking</p>
-              </div>
-            </div>
-          </div>
-
-          {/* คำแนะนำ */}
-          <div className="flex items-start gap-2.5 bg-blue-50 rounded-2xl px-4 py-3 ring-1 ring-blue-100">
+          {/* หมายเหตุ */}
+          <div className="flex items-start gap-2.5 bg-amber-50 rounded-2xl px-4 py-3 ring-1 ring-amber-100">
             <span className="text-base flex-shrink-0">💡</span>
-            <p className="text-xs text-blue-700 leading-relaxed">
-              หลังจากสแกนจ่ายเงินเรียบร้อยแล้ว กรุณากดปุ่ม <strong>"ยืนยันการชำระเงิน"</strong> ด้านล่างเพื่อส่งออเดอร์เข้าครัว
+            <p className="text-xs text-amber-700 leading-relaxed">
+              เมื่อรับประทานอาหารเสร็จแล้ว กดปุ่ม <strong>"เรียกเก็บเงิน"</strong> ในแท็บออเดอร์ เพื่อให้พนักงานมาเช็คบิล
             </p>
           </div>
 
@@ -500,8 +478,8 @@ function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effective
           <button
             onClick={onConfirm}
             disabled={sending}
-            className="group relative w-full overflow-hidden bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500
-              text-white rounded-2xl py-4 font-black text-base shadow-xl shadow-emerald-300/50
+            className="group relative w-full overflow-hidden bg-gradient-to-r from-orange-500 via-orange-600 to-rose-500
+              text-white rounded-2xl py-4 font-black text-base shadow-xl shadow-orange-300/50
               active:scale-[0.98] disabled:opacity-60 disabled:scale-100 hover:shadow-2xl transition-all"
           >
             {!sending && (
@@ -514,7 +492,7 @@ function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effective
                   กำลังส่งออเดอร์...
                 </>
               ) : (
-                <>✅ ยืนยันการชำระเงินและสั่งอาหาร</>
+                <>✅ ยืนยันสั่งอาหาร</>
               )}
             </span>
           </button>
@@ -536,10 +514,11 @@ function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effective
    OrderTracker
 ───────────────────────────────────────────────────────────────────────────── */
 const TRACKING_STEPS = [
-  { key: 'pending',   icon: '📋', label: 'รับออเดอร์' },
-  { key: 'preparing', icon: '🍳', label: 'กำลังปรุง' },
-  { key: 'serving',   icon: '🚶', label: 'กำลังเสิร์ฟ' },
-  { key: 'served',    icon: '✅', label: 'เสิร์ฟแล้ว' },
+  { key: 'pending',          icon: '📋', label: 'รับออเดอร์' },
+  { key: 'preparing',        icon: '🍳', label: 'กำลังปรุง' },
+  { key: 'serving',          icon: '🚶', label: 'กำลังเสิร์ฟ' },
+  { key: 'served',           icon: '✅', label: 'เสิร์ฟแล้ว' },
+  { key: 'request_checkout', icon: '🧾', label: 'รอเช็คบิล' },
 ]
 
 function OrderTracker({ orders, loading }) {
@@ -553,7 +532,7 @@ function OrderTracker({ orders, loading }) {
     )
   }
 
-  const activeOrders = orders.filter(o => ['pending', 'preparing', 'serving', 'served'].includes(o.status))
+  const activeOrders = orders.filter(o => ['pending', 'preparing', 'serving', 'served', 'request_checkout'].includes(o.status))
   const doneOrders   = orders.filter(o => ['completed', 'cancelled'].includes(o.status))
 
   if (!activeOrders.length && !doneOrders.length) {
@@ -704,10 +683,11 @@ export default function TablePage() {
   const [sending,       setSending]       = useState(false)
   const [connected,     setConnected]     = useState(false)
 
-  const [optionMenu,    setOptionMenu]    = useState(null)
-  const [cartBump,      setCartBump]      = useState(0)
-  const [viewMode,      setViewMode]      = useState('list')   // 'list' | 'grid'
-  const [showCheckout,  setShowCheckout]  = useState(false)
+  const [optionMenu,          setOptionMenu]          = useState(null)
+  const [cartBump,            setCartBump]            = useState(0)
+  const [viewMode,            setViewMode]            = useState('list')   // 'list' | 'grid'
+  const [showCheckout,        setShowCheckout]        = useState(false)
+  const [requestingCheckout,  setRequestingCheckout]  = useState(false)
 
   const socketRef = useRef(null)
 
@@ -729,6 +709,14 @@ export default function TablePage() {
 
     socket.on('menu_availability_update', ({ menu_id, is_available }) => {
       setMenus(prev => prev.map(m => m.id === menu_id ? { ...m, is_available } : m))
+    })
+
+    socket.on('table_closed', ({ table_id }) => {
+      setOrders(prev => prev.map(o =>
+        o.table_id === table_id || String(o.table_id) === String(table_id)
+          ? { ...o, status: 'completed' }
+          : o
+      ))
     })
 
     return () => socket.disconnect()
@@ -787,8 +775,11 @@ export default function TablePage() {
   const cartTotal = cart.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
 
   const activeOrderCount = orders.filter(o =>
-    ['pending', 'preparing', 'serving'].includes(o.status)
+    ['pending', 'preparing', 'serving', 'request_checkout'].includes(o.status)
   ).length
+
+  const canRequestCheckout = orders.some(o => ['pending', 'preparing', 'serving', 'served'].includes(o.status))
+  const hasRequestedCheckout = orders.some(o => o.status === 'request_checkout')
 
   /* ── Cart helpers ── */
   const openOptionModal = useCallback((menu) => {
@@ -849,6 +840,24 @@ export default function TablePage() {
     setOrdersLoaded(false)
   }, [])
 
+  /* ── Request checkout (เรียกเก็บเงิน) ── */
+  const requestCheckout = async () => {
+    if (requestingCheckout) return
+    setRequestingCheckout(true)
+    try {
+      await axios.post(`${API_BASE}/tables/${effectiveTableId}/request-checkout`)
+      setOrders(prev => prev.map(o =>
+        ['pending', 'preparing', 'serving', 'served'].includes(o.status)
+          ? { ...o, status: 'request_checkout' }
+          : o
+      ))
+    } catch (err) {
+      alert(err.response?.data?.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่')
+    } finally {
+      setRequestingCheckout(false)
+    }
+  }
+
   /* ── Submit order (เรียกจาก CheckoutModal เท่านั้น) ── */
   const submitOrder = async () => {
     if (!cart.length || sending) return
@@ -868,11 +877,6 @@ export default function TablePage() {
       if (order) {
         setOrders(prev => [{ ...order, status: order.status || 'pending' }, ...prev])
       }
-
-      // อัปเดตสถานะโต๊ะเป็น "paid" (จ่ายแล้ว รอพนักงานเคลียร์)
-      try {
-        await axios.put(`${API_BASE}/tables/${effectiveTableId}/status`, { status: 'paid' })
-      } catch { /* ถ้าล้มเหลวก็ไม่บล็อก flow หลัก */ }
 
       setCart([])
       setShowCheckout(false)
@@ -1230,6 +1234,41 @@ export default function TablePage() {
         {activeTab === 'orders' && (
           <div className="py-2">
             <OrderTracker orders={orders} loading={ordersLoading} />
+
+            {/* ปุ่มเรียกเก็บเงิน */}
+            {!ordersLoading && (canRequestCheckout || hasRequestedCheckout) && (
+              <div className="mx-4 mt-3 mb-4">
+                {hasRequestedCheckout ? (
+                  <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-4">
+                    <div className="text-2xl animate-pulse">🧾</div>
+                    <div>
+                      <p className="text-sm font-black text-amber-800">ส่งคำขอเช็คบิลแล้ว</p>
+                      <p className="text-xs text-amber-600 mt-0.5">กรุณารอพนักงานมาเก็บเงิน</p>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={requestCheckout}
+                    disabled={requestingCheckout}
+                    className="group relative w-full overflow-hidden bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white rounded-2xl py-4 font-black text-base shadow-xl shadow-orange-300/50 active:scale-[0.98] disabled:opacity-60 transition-all hover:shadow-2xl"
+                  >
+                    {!requestingCheckout && (
+                      <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+                    )}
+                    <span className="relative flex items-center justify-center gap-2">
+                      {requestingCheckout ? (
+                        <>
+                          <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                          กำลังส่งคำขอ...
+                        </>
+                      ) : (
+                        <>🧾 เรียกเก็บเงิน / เช็คบิล</>
+                      )}
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1323,7 +1362,7 @@ export default function TablePage() {
                 >
                   <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/30 to-transparent" />
                   <span className="relative flex items-center justify-center gap-2">
-                    🧾 ดูสรุปและชำระเงิน
+                    🛒 ดูสรุปและยืนยันสั่งอาหาร
                     <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
                   </span>
                 </button>

@@ -14,8 +14,10 @@ router.post('/upload/menu-image', adminAuth, upload.single('file'), uploadMenuIm
 router.get   ('/tables',               menuController.getAllTables);
 router.post  ('/tables',               adminAuth, menuController.addTable);
 router.delete('/tables/last',          adminAuth, menuController.deleteLastTable);
-router.put   ('/tables/:id/status',    menuController.updateTableStatus);
-router.patch ('/tables/:id/customers', adminAuth, menuController.updateTableCustomers);
+router.put   ('/tables/:id/status',            menuController.updateTableStatus);
+router.patch ('/tables/:id/customers',         adminAuth, menuController.updateTableCustomers);
+router.post  ('/tables/:id/request-checkout',  orderController.requestCheckout);
+router.post  ('/tables/:id/close',             adminAuth, orderController.closeTable);
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 router.get('/settings',      settingsController.getSettings);

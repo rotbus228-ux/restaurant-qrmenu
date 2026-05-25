@@ -66,7 +66,7 @@ const orderController = {
   updateOrderStatus: async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
-    if (!['pending','preparing','serving','served','completed','cancelled'].includes(status))
+    if (!['pending','preparing','serving','served','completed','cancelled','request_checkout'].includes(status))
       return res.status(400).json({ success: false, message: 'สถานะไม่ถูกต้อง' });
     try {
       await supabase.from('orders').update({ status, updated_at: new Date() }).eq('id', id);
@@ -86,6 +86,66 @@ const orderController = {
       res.json({ success: true, data: { ...order, table_number: order.tables?.table_number, tables: undefined } });
     } catch (err) {
       console.error('[updateOrderStatus]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  requestCheckout: async (req, res) => {
+    const { id } = req.params;
+    try {
+      const { data: orders, error } = await supabase
+        .from('orders')
+        .select('id, total_price')
+        .eq('table_id', id)
+        .in('status', ['pending', 'preparing', 'serving', 'served']);
+      if (error) throw error;
+      if (!orders?.length)
+        return res.status(400).json({ success: false, message: 'ไม่มีออเดอร์ที่ต้องชำระ' });
+
+      const orderIds = orders.map(o => o.id);
+      await supabase.from('orders')
+        .update({ status: 'request_checkout', updated_at: new Date() })
+        .in('id', orderIds);
+
+      const { data: table } = await supabase.from('tables').select('table_number').eq('id', id).single();
+      const total = orders.reduce((s, o) => s + Number(o.total_price || 0), 0);
+
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('checkout_requested', { table_id: Number(id), table_number: table?.table_number, total_price: total, order_ids: orderIds });
+        orderIds.forEach(oid => {
+          const payload = { order_id: oid, status: 'request_checkout', table_id: Number(id) };
+          io.emit('order_status_update', payload);
+          io.emit('client_receive_status', payload);
+        });
+      }
+      res.json({ success: true, message: 'ส่งคำขอเช็คบิลแล้ว' });
+    } catch (err) {
+      console.error('[requestCheckout]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  closeTable: async (req, res) => {
+    const { id } = req.params;
+    try {
+      await supabase.from('orders')
+        .update({ status: 'completed', updated_at: new Date() })
+        .eq('table_id', id)
+        .in('status', ['pending', 'preparing', 'serving', 'served', 'request_checkout']);
+
+      await supabase.from('tables')
+        .update({ status: 'vacant', current_customers: 0, updated_at: new Date() })
+        .eq('id', id);
+
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('table_closed', { table_id: Number(id) });
+        io.emit('table_status_update', { table_id: Number(id), status: 'vacant', current_customers: 0 });
+      }
+      res.json({ success: true, message: 'ปิดโต๊ะสำเร็จ' });
+    } catch (err) {
+      console.error('[closeTable]', err);
       res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
     }
   },
