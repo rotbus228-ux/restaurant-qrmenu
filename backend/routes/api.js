@@ -1,8 +1,9 @@
 const express    = require('express');
 const router     = express.Router();
 const adminAuth  = require('../middleware/adminAuth');
-const orderController  = require('../controllers/orderController');
-const menuController   = require('../controllers/menuController');
+const orderController    = require('../controllers/orderController');
+const menuController     = require('../controllers/menuController');
+const settingsController = require('../controllers/settingsController');
 const { upload, uploadMenuImage } = require('../controllers/uploadController');
 
 // ─── Upload ──────────────────────────────────────────────────────────────────
@@ -10,9 +11,15 @@ router.post('/upload/menu-image', adminAuth, upload.single('file'), uploadMenuIm
 
 // ─── Tables ──────────────────────────────────────────────────────────────────
 // GET + PUT /status ไม่ต้องล็อก — ลูกค้าต้องใช้ทั้งสองนี้ตอนเลือกโต๊ะ
-router.get  ('/tables',               menuController.getAllTables);
-router.put  ('/tables/:id/status',    menuController.updateTableStatus);
-router.patch('/tables/:id/customers', adminAuth, menuController.updateTableCustomers);
+router.get   ('/tables',               menuController.getAllTables);
+router.post  ('/tables',               adminAuth, menuController.addTable);
+router.delete('/tables/last',          adminAuth, menuController.deleteLastTable);
+router.put   ('/tables/:id/status',    menuController.updateTableStatus);
+router.patch ('/tables/:id/customers', adminAuth, menuController.updateTableCustomers);
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+router.get('/settings',      settingsController.getSettings);
+router.put('/settings/:key', adminAuth, settingsController.setSetting);
 
 // ─── Categories ──────────────────────────────────────────────────────────────
 router.get   ('/categories',     menuController.getAllCategories);                   // public — ลูกค้าดูเมนูได้

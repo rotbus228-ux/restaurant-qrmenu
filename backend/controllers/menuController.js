@@ -200,6 +200,41 @@ const menuController = {
       res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
     }
   },
+
+  addTable: async (req, res) => {
+    try {
+      const { data: last } = await supabase
+        .from('tables').select('table_number').order('table_number', { ascending: false }).limit(1).single();
+      const nextNum = (last?.table_number ?? 0) + 1;
+      const { data, error } = await supabase
+        .from('tables').insert({ table_number: nextNum, status: 'vacant', current_customers: 0 }).select().single();
+      if (error) throw error;
+      const io = req.app.get('io');
+      if (io) io.emit('table_added', data);
+      res.status(201).json({ success: true, data });
+    } catch (err) {
+      console.error('[addTable]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  deleteLastTable: async (req, res) => {
+    try {
+      const { data: last } = await supabase
+        .from('tables').select('*').order('table_number', { ascending: false }).limit(1).single();
+      if (!last) return res.status(404).json({ success: false, message: 'ไม่พบโต๊ะ' });
+      if (last.status !== 'vacant') return res.status(400).json({ success: false, message: 'โต๊ะสุดท้ายยังไม่ว่าง ไม่สามารถลบได้' });
+      const { count } = await supabase.from('tables').select('*', { count: 'exact', head: true });
+      if (count <= 1) return res.status(400).json({ success: false, message: 'ต้องมีอย่างน้อย 1 โต๊ะ' });
+      await supabase.from('tables').delete().eq('id', last.id);
+      const io = req.app.get('io');
+      if (io) io.emit('table_removed', { table_id: last.id, table_number: last.table_number });
+      res.json({ success: true, message: `ลบโต๊ะที่ ${last.table_number} สำเร็จ` });
+    } catch (err) {
+      console.error('[deleteLastTable]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+  },
 };
 
 module.exports = menuController;

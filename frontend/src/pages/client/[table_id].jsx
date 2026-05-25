@@ -7,7 +7,6 @@ const _BASE           = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 const API_BASE        = `${_BASE}/api`
 const SOCKET_URL      = _BASE
 const RESTAURANT_NAME = 'อร่อยจัง แซ่บเวอร์'
-const TABLE_COUNT     = 10
 
 /* ── ตัวเลือกเสริมแยกตามประเภทหมวดหมู่ ──────────────────────────────────── */
 const CATEGORY_CONFIGS = {
@@ -293,7 +292,7 @@ function OptionsModal({ menu, onConfirm, onClose }) {
 /* ─────────────────────────────────────────────────────────────────────────────
    ChangeTableModal
 ───────────────────────────────────────────────────────────────────────────── */
-function ChangeTableModal({ currentTableId, currentCount, onConfirm, onClose }) {
+function ChangeTableModal({ currentTableId, currentCount, tables, onConfirm, onClose }) {
   const [newTable, setNewTable] = useState(String(currentTableId))
   const [newCount, setNewCount] = useState(currentCount)
 
@@ -326,8 +325,8 @@ function ChangeTableModal({ currentTableId, currentCount, onConfirm, onClose }) 
               onChange={e => setNewTable(e.target.value)}
               className="w-full border-2 border-stone-200 rounded-2xl px-4 py-3 text-base font-bold text-stone-800 focus:border-orange-500 focus:ring-4 focus:ring-orange-100 focus:outline-none appearance-none bg-white hover:border-orange-300 transition-all cursor-pointer"
             >
-              {Array.from({ length: TABLE_COUNT }, (_, i) => i + 1).map(n => (
-                <option key={n} value={String(n)}>โต๊ะที่ {n}</option>
+              {tables.map(t => (
+                <option key={t.table_number} value={String(t.table_number)}>โต๊ะที่ {t.table_number}</option>
               ))}
             </select>
             <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-orange-500 transition-transform group-focus-within:rotate-180">
@@ -399,7 +398,7 @@ function QRPlaceholder() {
   )
 }
 
-function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effectiveCount, onConfirm, onClose, sending }) {
+function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effectiveCount, onConfirm, onClose, sending, paymentQrUrl }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-[fadeIn_0.2s_ease-out]" onClick={!sending ? onClose : undefined} />
@@ -473,8 +472,16 @@ function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effective
               <span className="w-1 h-3 bg-emerald-500 rounded-full" /> สแกนจ่าย PromptPay
             </p>
             <div className="flex flex-col items-center justify-center bg-white rounded-2xl ring-1 ring-stone-200 py-8 px-4 shadow-sm">
-              <QRPlaceholder />
-              <div className="mt-10 text-center space-y-1">
+              {paymentQrUrl ? (
+                <img
+                  src={paymentQrUrl}
+                  alt="QR PromptPay"
+                  className="w-52 h-52 object-contain"
+                />
+              ) : (
+                <QRPlaceholder />
+              )}
+              <div className="mt-6 text-center space-y-1">
                 <p className="text-xs font-black text-stone-600">สแกน QR Code เพื่อชำระเงิน</p>
                 <p className="text-[10px] text-stone-400">รองรับทุกธนาคารและ Mobile Banking</p>
               </div>
@@ -681,11 +688,13 @@ export default function TablePage() {
   const [effectiveCount,    setEffectiveCount]    = useState(location.state?.customerCount || 1)
   const [showChangeTable,   setShowChangeTable]   = useState(false)
 
-  const [activeTab,     setActiveTab]     = useState('menu')
-  const [categories,    setCategories]    = useState([])
-  const [menus,         setMenus]         = useState([])
-  const [menuLoading,   setMenuLoading]   = useState(true)
-  const [activeCat,     setActiveCat]     = useState(0)
+  const [activeTab,      setActiveTab]      = useState('menu')
+  const [categories,     setCategories]     = useState([])
+  const [menus,          setMenus]          = useState([])
+  const [tables,         setTables]         = useState([])
+  const [paymentQrUrl,   setPaymentQrUrl]   = useState('')
+  const [menuLoading,    setMenuLoading]    = useState(true)
+  const [activeCat,      setActiveCat]      = useState(0)
 
   const [cart,          setCart]          = useState([])
 
@@ -725,13 +734,15 @@ export default function TablePage() {
     return () => socket.disconnect()
   }, [])
 
-  /* ── Fetch menus + categories ── */
+  /* ── Fetch menus + categories + tables + settings ── */
   useEffect(() => {
     setMenuLoading(true)
     Promise.allSettled([
       axios.get(`${API_BASE}/categories`),
       axios.get(`${API_BASE}/menus`),
-    ]).then(([catResult, menuResult]) => {
+      axios.get(`${API_BASE}/tables`),
+      axios.get(`${API_BASE}/settings`),
+    ]).then(([catResult, menuResult, tablesResult, settingsResult]) => {
       if (catResult.status === 'fulfilled' && catResult.value.data?.data?.length) {
         setCategories([{ id: 0, name: 'ทั้งหมด' }, ...catResult.value.data.data])
       } else {
@@ -739,6 +750,12 @@ export default function TablePage() {
       }
       if (menuResult.status === 'fulfilled' && menuResult.value.data?.data) {
         setMenus(menuResult.value.data.data.map(m => ({ ...m, price: Number(m.price) })))
+      }
+      if (tablesResult.status === 'fulfilled') {
+        setTables(tablesResult.value.data?.data ?? [])
+      }
+      if (settingsResult.status === 'fulfilled') {
+        setPaymentQrUrl(settingsResult.value.data?.data?.payment_qr_url || '')
       }
     }).finally(() => setMenuLoading(false))
   }, [])
@@ -885,6 +902,7 @@ export default function TablePage() {
         <ChangeTableModal
           currentTableId={effectiveTableId}
           currentCount={effectiveCount}
+          tables={tables}
           onConfirm={handleChangeTable}
           onClose={() => setShowChangeTable(false)}
         />
@@ -899,6 +917,7 @@ export default function TablePage() {
           onConfirm={submitOrder}
           onClose={() => setShowCheckout(false)}
           sending={sending}
+          paymentQrUrl={paymentQrUrl}
         />
       )}
 

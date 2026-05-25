@@ -127,14 +127,19 @@ export default function TableDashboard() {
   const navigate = useNavigate()
   const logout   = () => { adminLogout(); navigate('/', { replace: true }) }
 
-  const [tables,    setTables]    = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [connected, setConnected] = useState(false)
-  const [clearing,  setClearing]  = useState(null)  // table.id ที่กำลัง clear
-  const [toast,     setToast]     = useState(null)
-  const socketRef = useRef(null)
+  const [tables,      setTables]      = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [connected,   setConnected]   = useState(false)
+  const [clearing,    setClearing]    = useState(null)
+  const [adding,      setAdding]      = useState(false)
+  const [deleting,    setDeleting]    = useState(false)
+  const [toast,       setToast]       = useState(null)
+  const [qrUrl,       setQrUrl]       = useState('')
+  const [qrUploading, setQrUploading] = useState(false)
+  const qrInputRef = useRef(null)
+  const socketRef  = useRef(null)
 
-  /* ── Load tables ── */
+  /* ── Load tables + settings ── */
   const loadTables = async () => {
     try {
       const res = await axios.get(`${API_BASE}/api/tables`)
@@ -147,7 +152,12 @@ export default function TableDashboard() {
     }
   }
 
-  useEffect(() => { loadTables() }, [])
+  useEffect(() => {
+    loadTables()
+    axios.get(`${API_BASE}/api/settings`)
+      .then(res => setQrUrl(res.data?.data?.payment_qr_url || ''))
+      .catch(() => {})
+  }, [])
 
   /* ── Socket ── */
   useEffect(() => {
@@ -160,13 +170,17 @@ export default function TableDashboard() {
     socket.on('table_status_update', ({ table_id, status, current_customers }) => {
       setTables(prev => prev.map(t =>
         t.id === table_id
-          ? {
-              ...t,
-              status,
-              current_customers: current_customers !== undefined ? current_customers : t.current_customers,
-            }
+          ? { ...t, status, current_customers: current_customers !== undefined ? current_customers : t.current_customers }
           : t
       ))
+    })
+
+    socket.on('table_added', (table) => {
+      setTables(prev => [...prev, table].sort((a, b) => a.table_number - b.table_number))
+    })
+
+    socket.on('table_removed', ({ table_id }) => {
+      setTables(prev => prev.filter(t => t.id !== table_id))
     })
 
     return () => socket.disconnect()
@@ -198,6 +212,68 @@ export default function TableDashboard() {
     } catch {
       loadTables()
       showToast('❌ เปลี่ยนสถานะไม่สำเร็จ', 'error')
+    }
+  }
+
+  /* ── Admin: add table ── */
+  const handleAddTable = async () => {
+    setAdding(true)
+    try {
+      await axios.post(`${API_BASE}/api/tables`, {}, { headers: getAuthHeaders() })
+      showToast('✅ เพิ่มโต๊ะสำเร็จ', 'success')
+    } catch (err) {
+      showToast(err.response?.data?.message || '❌ เพิ่มโต๊ะไม่สำเร็จ', 'error')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  /* ── Admin: delete last table ── */
+  const handleDeleteLast = async () => {
+    if (!window.confirm(`ลบโต๊ะที่ ${tables[tables.length - 1]?.table_number} ออก? (ต้องสถานะว่างเท่านั้น)`)) return
+    setDeleting(true)
+    try {
+      await axios.delete(`${API_BASE}/api/tables/last`, { headers: getAuthHeaders() })
+      showToast('🗑️ ลบโต๊ะสำเร็จ', 'success')
+    } catch (err) {
+      showToast(err.response?.data?.message || '❌ ลบโต๊ะไม่สำเร็จ', 'error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  /* ── Admin: upload QR ── */
+  const handleQrUpload = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setQrUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await axios.post(`${API_BASE}/api/upload/menu-image`, form, {
+        headers: { ...getAuthHeaders(), 'Content-Type': 'multipart/form-data' },
+      })
+      const url = res.data.url
+      await axios.put(`${API_BASE}/api/settings/payment_qr_url`, { value: url }, { headers: getAuthHeaders() })
+      setQrUrl(url)
+      showToast('✅ อัปเดต QR PromptPay สำเร็จ', 'success')
+    } catch {
+      showToast('❌ อัปโหลด QR ไม่สำเร็จ', 'error')
+    } finally {
+      setQrUploading(false)
+      if (qrInputRef.current) qrInputRef.current.value = ''
+    }
+  }
+
+  /* ── Admin: clear QR ── */
+  const handleQrClear = async () => {
+    if (!window.confirm('ลบ QR PromptPay ออก?')) return
+    try {
+      await axios.put(`${API_BASE}/api/settings/payment_qr_url`, { value: '' }, { headers: getAuthHeaders() })
+      setQrUrl('')
+      showToast('🗑️ ลบ QR สำเร็จ', 'success')
+    } catch {
+      showToast('❌ ลบ QR ไม่สำเร็จ', 'error')
     }
   }
 
@@ -270,6 +346,27 @@ export default function TableDashboard() {
 
       <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
 
+        {/* ── Table Management ── */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={handleAddTable}
+            disabled={adding}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-500 text-white text-sm font-black shadow-lg shadow-emerald-300/40 hover:shadow-xl hover:shadow-emerald-300/50 active:scale-95 disabled:opacity-50 transition-all"
+          >
+            {adding ? '⏳ กำลังเพิ่ม...' : '➕ เพิ่มโต๊ะ'}
+          </button>
+          {tables.length > 1 && (
+            <button
+              onClick={handleDeleteLast}
+              disabled={deleting}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-rose-500 to-red-500 text-white text-sm font-black shadow-lg shadow-rose-300/40 hover:shadow-xl active:scale-95 disabled:opacity-50 transition-all"
+            >
+              {deleting ? '⏳...' : `🗑️ ลบโต๊ะที่ ${tables[tables.length - 1]?.table_number}`}
+            </button>
+          )}
+          <span className="text-xs text-slate-400 font-semibold">ปัจจุบัน {tables.length} โต๊ะ · ลบได้เฉพาะโต๊ะสุดท้ายที่ว่างอยู่</span>
+        </div>
+
         {/* ── Summary strip ── */}
         <div className="grid grid-cols-3 gap-3">
           {[
@@ -324,6 +421,66 @@ export default function TableDashboard() {
             ))}
           </div>
         )}
+
+        {/* ── QR PromptPay Settings ── */}
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
+          <h2 className="text-sm font-black text-slate-700 flex items-center gap-2 mb-4">
+            <span className="text-lg">📱</span> ตั้งค่า QR PromptPay
+          </h2>
+          <div className="flex flex-col sm:flex-row gap-5 items-start">
+            {/* Preview */}
+            <div className="w-40 h-40 rounded-2xl border-2 border-dashed border-slate-200 flex items-center justify-center overflow-hidden bg-slate-50 flex-shrink-0">
+              {qrUrl ? (
+                <img src={qrUrl} alt="QR PromptPay" className="w-full h-full object-contain" />
+              ) : (
+                <div className="text-center text-slate-400 text-xs font-semibold px-3">
+                  <p className="text-3xl mb-1">📷</p>
+                  <p>ยังไม่มี QR</p>
+                </div>
+              )}
+            </div>
+            {/* Controls */}
+            <div className="space-y-3 flex-1">
+              <p className="text-xs text-slate-500 leading-relaxed">
+                อัปโหลดรูป QR PromptPay ของร้าน จะแสดงในหน้าชำระเงินของลูกค้า<br />
+                รองรับ PNG, JPG ขนาดสูงสุด 5MB
+              </p>
+              <input
+                ref={qrInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleQrUpload}
+                className="hidden"
+                id="qr-upload"
+              />
+              <div className="flex gap-2 flex-wrap">
+                <label
+                  htmlFor="qr-upload"
+                  className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-black cursor-pointer transition-all active:scale-95 shadow-md
+                    ${qrUploading
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-indigo-300/40 hover:shadow-lg hover:shadow-indigo-300/50'}`}
+                >
+                  {qrUploading ? '⏳ กำลังอัปโหลด...' : '📤 อัปโหลด QR ใหม่'}
+                </label>
+                {qrUrl && (
+                  <button
+                    onClick={handleQrClear}
+                    className="px-4 py-2.5 rounded-2xl bg-rose-50 text-rose-600 text-sm font-black border border-rose-200 hover:bg-rose-100 active:scale-95 transition-all"
+                  >
+                    🗑️ ลบ QR
+                  </button>
+                )}
+              </div>
+              {qrUrl && (
+                <p className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
+                  <span>✅</span> QR พร้อมแสดงในหน้าชำระเงินแล้ว
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <style>{`

@@ -4,33 +4,24 @@ import axios from 'axios'
 
 const API_BASE        = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 const RESTAURANT_NAME = 'อร่อยจัง แซ่บเวอร์'
-const TABLE_COUNT     = 10
 
 export default function WelcomePage() {
   const [tableId,       setTableId]       = useState('')
   const [customerCount, setCustomerCount] = useState(1)
-  const [tableStatuses, setTableStatuses] = useState({})  // { [tableNumber]: status }
+  const [tables,        setTables]        = useState([])  // [{ id, table_number, status }]
   const [loadingTables, setLoadingTables] = useState(true)
   const navigate = useNavigate()
 
   /* ── โหลดสถานะโต๊ะทั้งหมด ── */
   useEffect(() => {
     axios.get(`${API_BASE}/api/tables`)
-      .then(res => {
-        const map = {}
-        for (const t of res.data?.data ?? []) {
-          map[String(t.table_number)] = t.status   // 'vacant' | 'occupied' | 'paid'
-        }
-        setTableStatuses(map)
-      })
-      .catch(() => { /* ถ้า API ล้มเหลวก็ปล่อยให้เลือกได้ทุกโต๊ะ */ })
+      .then(res => setTables(res.data?.data ?? []))
+      .catch(() => {})
       .finally(() => setLoadingTables(false))
   }, [])
 
-  const isOccupied = (n) => {
-    const s = tableStatuses[String(n)]
-    return s === 'occupied' || s === 'paid'
-  }
+  const tableStatus  = (n) => tables.find(t => String(t.table_number) === String(n))?.status
+  const isOccupied   = (n) => { const s = tableStatus(n); return s === 'occupied' || s === 'paid' }
 
   const handleConfirm = async () => {
     if (!tableId || isOccupied(tableId)) return
@@ -96,7 +87,8 @@ export default function WelcomePage() {
                 className="w-full border-2 border-gray-200 rounded-2xl px-4 py-3.5 text-base font-bold text-gray-800 focus:border-orange-500 focus:ring-4 focus:ring-orange-100 focus:outline-none appearance-none bg-gradient-to-br from-white to-gray-50 cursor-pointer transition-all hover:border-orange-300 hover:shadow-md"
               >
                 <option value="">-- เลือกโต๊ะ --</option>
-                {Array.from({ length: TABLE_COUNT }, (_, i) => i + 1).map(n => {
+                {tables.map(t => {
+                  const n        = t.table_number
                   const occupied = !loadingTables && isOccupied(n)
                   return (
                     <option key={n} value={n} disabled={occupied}>
@@ -111,11 +103,12 @@ export default function WelcomePage() {
             </div>
 
             {/* Table status grid (visual) */}
-            {!loadingTables && Object.keys(tableStatuses).length > 0 && (
+            {!loadingTables && tables.length > 0 && (
               <div className="mt-3 grid grid-cols-5 gap-1.5">
-                {Array.from({ length: TABLE_COUNT }, (_, i) => i + 1).map(n => {
-                  const s = tableStatuses[String(n)]
-                  const isOcc = s === 'occupied' || s === 'paid'
+                {tables.map(t => {
+                  const n      = t.table_number
+                  const s      = tableStatus(n)
+                  const isOcc  = isOccupied(n)
                   return (
                     <button
                       key={n}
