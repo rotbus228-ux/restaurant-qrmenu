@@ -107,6 +107,11 @@ const orderController = {
         .update({ status: 'request_checkout', updated_at: new Date() })
         .in('id', orderIds);
 
+      // ปิดโต๊ะอัตโนมัติทันทีที่ลูกค้าขอเช็คบิล
+      await supabase.from('tables')
+        .update({ status: 'vacant', current_customers: 0, updated_at: new Date() })
+        .eq('id', id);
+
       const { data: table } = await supabase.from('tables').select('table_number').eq('id', id).single();
       const total = orders.reduce((s, o) => s + Number(o.total_price || 0), 0);
 
@@ -118,6 +123,8 @@ const orderController = {
           io.emit('order_status_update', payload);
           io.emit('client_receive_status', payload);
         });
+        // แจ้งทุก client ว่าโต๊ะนี้ว่างแล้ว
+        io.emit('table_status_update', { table_id: Number(id), status: 'vacant', current_customers: 0 });
       }
       res.json({ success: true, message: 'ส่งคำขอเช็คบิลแล้ว' });
     } catch (err) {

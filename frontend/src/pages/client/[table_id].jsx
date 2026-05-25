@@ -693,6 +693,7 @@ export default function TablePage() {
   const [viewMode,            setViewMode]            = useState('list')   // 'list' | 'grid'
   const [showCheckout,        setShowCheckout]        = useState(false)
   const [requestingCheckout,  setRequestingCheckout]  = useState(false)
+  const [tableClosed,         setTableClosed]         = useState(false)
 
   const socketRef = useRef(null)
 
@@ -728,12 +729,25 @@ export default function TablePage() {
     })
 
     socket.on('table_closed', ({ table_id }) => {
+      const tid = Number(table_id)
+      const myId = Number(effectiveTableId || tableId)
       setOrders(prev => prev.map(o =>
         o.table_id === table_id || String(o.table_id) === String(table_id)
           ? { ...o, status: 'completed' }
           : o
       ))
       try { localStorage.removeItem(`qrmenu_cart_${tableId}`) } catch {}
+      if (tid === myId) setTableClosed(true)
+    })
+
+    socket.on('table_status_update', ({ table_id, status }) => {
+      const tid = Number(table_id)
+      const myId = Number(effectiveTableId || tableId)
+      if (tid === myId && status === 'vacant') {
+        setTableClosed(true)
+        setCart([])
+        try { localStorage.removeItem(`qrmenu_cart_${tableId}`) } catch {}
+      }
     })
 
     return () => socket.disconnect()
@@ -908,6 +922,38 @@ export default function TablePage() {
   }
 
   const menuQty = (menuId) => cart.filter(i => i.menuId === menuId).reduce((s, i) => s + i.quantity, 0)
+
+  /* ── หน้าขอบคุณ: แสดงเมื่อโต๊ะถูกปิดหรือชำระเงินแล้ว ── */
+  if (tableClosed) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-orange-400 via-rose-400 to-pink-500 flex flex-col items-center justify-center p-6 text-white text-center">
+        <div className="pointer-events-none absolute -top-24 -left-24 w-72 h-72 bg-white/10 rounded-full blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -right-24 w-80 h-80 bg-white/10 rounded-full blur-3xl" />
+        <div className="relative z-10 flex flex-col items-center gap-5">
+          <div className="w-28 h-28 bg-white/20 backdrop-blur-xl rounded-3xl flex items-center justify-center text-6xl shadow-2xl ring-2 ring-white/30">
+            🙏
+          </div>
+          <div>
+            <h1 className="text-3xl font-black drop-shadow-lg">ขอบคุณที่ใช้บริการ</h1>
+            <p className="mt-2 text-white/80 text-sm font-medium leading-relaxed">
+              ชำระเงินเรียบร้อยแล้ว<br />
+              โต๊ะที่ {effectiveTableId} พร้อมให้บริการลูกค้าท่านต่อไป
+            </p>
+          </div>
+          <div className="mt-2 bg-white/20 backdrop-blur-sm rounded-2xl px-6 py-4 ring-1 ring-white/30">
+            <p className="text-white font-black text-lg">{restaurantName}</p>
+            <p className="text-white/70 text-xs mt-0.5">หวังว่าจะได้พบกันอีก 😊</p>
+          </div>
+          <button
+            onClick={() => window.location.href = '/'}
+            className="mt-2 px-8 py-3 bg-white text-orange-500 font-black rounded-2xl shadow-xl active:scale-95 transition-all text-sm"
+          >
+            กลับหน้าหลัก →
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-stone-50 select-none flex flex-col">
