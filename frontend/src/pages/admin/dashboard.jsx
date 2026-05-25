@@ -252,21 +252,46 @@ const MEDAL_STYLES = [
   { medal: '🏅', ring: 'ring-violet-400',  bar: 'from-violet-400 to-purple-500',text: 'text-violet-400' },
 ]
 
-function Leaderboard({ topMenus }) {
+const PERIOD_OPTIONS = [
+  { key: 'today', label: 'วันนี้'   },
+  { key: 'month', label: 'เดือนนี้' },
+  { key: 'year',  label: 'ปีนี้'    },
+]
+
+function Leaderboard({ topMenus, period, onPeriodChange }) {
   const maxQty = topMenus.reduce((m, x) => Math.max(m, Number(x.total_qty || 0)), 0) || 1
+  const emptyMsg = period === 'month' ? 'ยังไม่มีข้อมูลยอดขายเดือนนี้'
+                 : period === 'year'  ? 'ยังไม่มีข้อมูลยอดขายปีนี้'
+                 : 'ยังไม่มีข้อมูลยอดขายวันนี้'
 
   return (
     <div className="bg-slate-800/60 backdrop-blur-sm rounded-2xl px-4 py-3 ring-1 ring-slate-700/50">
-      <div className="flex items-center gap-2 mb-3">
+      {/* Header row */}
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
         <span className="text-lg">🏆</span>
-        <span className="text-sm font-black text-white">Top 5 เมนูขายดีวันนี้</span>
+        <span className="text-sm font-black text-white">Top 5 เมนูขายดี</span>
         <span className="ml-auto text-[10px] text-slate-500 font-bold uppercase tracking-wider">Leaderboard</span>
+      </div>
+      {/* Period tabs */}
+      <div className="flex gap-1 mb-3">
+        {PERIOD_OPTIONS.map(opt => (
+          <button
+            key={opt.key}
+            onClick={() => onPeriodChange(opt.key)}
+            className={`flex-1 py-1.5 rounded-xl text-[11px] font-black transition-all
+              ${period === opt.key
+                ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30'
+                : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700 hover:text-slate-200'}`}
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
 
       {topMenus.length === 0 ? (
         <div className="py-6 text-center text-slate-500 text-xs">
           <span className="text-2xl block mb-1">📈</span>
-          ยังไม่มีข้อมูลยอดขายวันนี้
+          {emptyMsg}
         </div>
       ) : (
         <div className="space-y-2">
@@ -274,7 +299,7 @@ function Leaderboard({ topMenus }) {
             const style = MEDAL_STYLES[i] || MEDAL_STYLES[4]
             const pct   = Math.round((Number(menu.total_qty) / maxQty) * 100)
             return (
-              <div key={menu.id ?? `deleted-${menu.name}`} className="flex items-center gap-3 bg-slate-900/40 rounded-xl px-3 py-2 ring-1 ring-slate-700/40">
+              <div key={menu.id} className="flex items-center gap-3 bg-slate-900/40 rounded-xl px-3 py-2 ring-1 ring-slate-700/40">
                 <div className={`w-9 h-9 rounded-full bg-slate-900 flex items-center justify-center text-xl ring-2 ${style.ring} shadow-md flex-shrink-0`}>
                   {style.medal}
                 </div>
@@ -312,7 +337,8 @@ export default function AdminDashboard() {
   const [clock,      setClock]      = useState(new Date())
   const [mobileTab,  setMobileTab]  = useState('pending')
   const [todayStats, setTodayStats] = useState({ totalCustomers: 0, totalOrders: 0, totalSales: 0 })
-  const [topMenus,   setTopMenus]   = useState([])
+  const [topMenus,       setTopMenus]       = useState([])
+  const [topMenusPeriod, setTopMenusPeriod] = useState('today')
   const [showSidebar,    setShowSidebar]    = useState(true)
   const [closingTableId, setClosingTableId] = useState(null)
   const [restaurantName, setRestaurantName] = useState('ร้านอาหารของเรา')
@@ -334,25 +360,26 @@ export default function AdminDashboard() {
   }, [navigate])
 
   /* ── Fetch top menus ── */
-  const fetchTopMenus = useCallback(() => {
-    axios.get(`${API_BASE}/stats/top-menus`, { headers: getAuthHeaders() })
+  const fetchTopMenus = useCallback((period = 'today') => {
+    axios.get(`${API_BASE}/stats/top-menus?period=${period}`, { headers: getAuthHeaders() })
       .then(r => { if (r.data?.data) setTopMenus(r.data.data) })
       .catch(err => handleAuthError(err, navigate))
   }, [navigate])
 
   useEffect(() => {
     fetchTodayStats()
-    fetchTopMenus()
+    fetchTopMenus('today')
     axios.get(`${API_BASE}/settings`)
       .then(res => { const name = res.data?.data?.restaurant_name; if (name) setRestaurantName(name) })
       .catch(() => {})
-    const statsId    = setInterval(fetchTodayStats, 60000)
-    const topMenusId = setInterval(fetchTopMenus, 60000)
-    return () => {
-      clearInterval(statsId)
-      clearInterval(topMenusId)
-    }
+    const statsId = setInterval(fetchTodayStats, 60000)
+    return () => clearInterval(statsId)
   }, [fetchTodayStats, fetchTopMenus])
+
+  /* Re-fetch when period changes */
+  useEffect(() => {
+    fetchTopMenus(topMenusPeriod)
+  }, [topMenusPeriod, fetchTopMenus])
 
   /* ── Socket.io ── */
   useEffect(() => {
@@ -652,7 +679,7 @@ export default function AdminDashboard() {
           {/* Sidebar — Leaderboard */}
           {showSidebar && (
             <aside className="overflow-y-auto pr-1 -mr-1 space-y-4">
-              <Leaderboard topMenus={topMenus} />
+              <Leaderboard topMenus={topMenus} period={topMenusPeriod} onPeriodChange={setTopMenusPeriod} />
             </aside>
           )}
         </div>

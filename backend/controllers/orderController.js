@@ -194,7 +194,8 @@ const orderController = {
 
   getTopMenus: async (req, res) => {
     try {
-      const { data, error } = await supabase.rpc('get_top_menus');
+      const period = ['today', 'month', 'year'].includes(req.query.period) ? req.query.period : 'today';
+      const { data, error } = await supabase.rpc('get_top_menus_period', { p_period: period });
       if (error) throw error;
       res.json({ success: true, data: (data||[]).map(r => ({ id: r.id, name: r.name, total_qty: Number(r.total_qty), total_sales: Number(r.total_sales) })) });
     } catch (err) {
