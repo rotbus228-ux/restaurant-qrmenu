@@ -103,13 +103,24 @@ function OrderCard({ order, isNew, onAction, isLoading }) {
       <div className="flex items-start justify-between mb-3 gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="inline-flex items-center gap-1 text-base font-black text-slate-900 bg-slate-900/5 px-2 py-0.5 rounded-lg">
-              🪑 โต๊ะ {order.table_number ?? order.table_id}
-            </span>
+            {order.order_type === 'takeaway' ? (
+              <span className="inline-flex items-center gap-1 text-base font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-lg">
+                🥡 ใส่กล่อง
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-base font-black text-slate-900 bg-slate-900/5 px-2 py-0.5 rounded-lg">
+                🪑 โต๊ะ {order.table_number ?? order.table_id}
+              </span>
+            )}
             {isNew && (
               <span className="bg-gradient-to-r from-orange-500 to-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-bounce shadow-md">ใหม่!</span>
             )}
           </div>
+          {order.order_type === 'takeaway' && (order.customer_name || order.customer_phone) && (
+            <p className="text-[11px] text-emerald-700 mt-1 font-bold">
+              👤 {order.customer_name || '-'} · 📱 {order.customer_phone || '-'}
+            </p>
+          )}
           <p className="text-[11px] text-slate-500 mt-1 font-medium">
             #{order.id ?? '–'} · {order.customer_count ? `${order.customer_count} คน · ` : ''}{elapsed(order.created_at)}
           </p>

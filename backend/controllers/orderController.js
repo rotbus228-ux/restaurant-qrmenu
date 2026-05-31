@@ -4,9 +4,10 @@ const { sendOrderNotification: sendTelegram } = require('../config/telegram');
 const orderController = {
   getAllOrders: async (req, res) => {
     try {
-      const { table_id } = req.query;
+      const { table_id, order_type } = req.query;
       let q = supabase.from('orders').select(`*, tables(table_number), order_items(*, menus(name))`).order('created_at', { ascending: false });
       if (table_id) q = q.eq('table_id', Number(table_id));
+      if (order_type) q = q.eq('order_type', order_type);
       const { data: orders, error } = await q;
       if (error) throw error;
       const result = orders.map(o => ({
@@ -30,36 +31,102 @@ const orderController = {
   },
 
   createOrder: async (req, res) => {
-    const { table_id, customer_count, items } = req.body;
-    if (!table_id || !customer_count || !items?.length) return res.status(400).json({ success: false, message: 'ข้อมูลไม่ครบถ้วน' });
+    const { table_id, customer_count, items, order_type, customer_name, customer_phone } = req.body;
+    const isTakeaway = order_type === 'takeaway';
+
+    // validate
+    if (!customer_count || !items?.length) {
+      return res.status(400).json({ success: false, message: 'ข้อมูลไม่ครบถ้วน' });
+    }
+    if (isTakeaway) {
+      if (!customer_name || !customer_phone) {
+        return res.status(400).json({ success: false, message: 'กรุณากรอกชื่อและเบอร์โทรสำหรับออเดอร์กลับบ้าน' });
+      }
+    } else {
+      if (!table_id || isNaN(Number(table_id))) {
+        return res.status(400).json({ success: false, message: 'ข้อมูลโต๊ะไม่ถูกต้อง' });
+      }
+    }
+
     try {
       const { data, error } = await supabase.rpc('create_order', {
-        p_table_id: table_id, p_customer_count: customer_count, p_items: items,
+        p_table_id: isTakeaway ? null : Number(table_id),
+        p_customer_count: customer_count,
+        p_items: items,
+        p_order_type: isTakeaway ? 'takeaway' : 'dine_in',
+        p_customer_name: customer_name || null,
+        p_customer_phone: customer_phone || null,
       });
       if (error) throw new Error(error.message);
 
-      const { data: table } = await supabase.from('tables').select('table_number').eq('id', table_id).single();
+      let tableNumber = null;
+      if (!isTakeaway) {
+        const { data: table } = await supabase.from('tables').select('table_number').eq('id', table_id).single();
+        tableNumber = table?.table_number;
+      }
+
       const enrichedItems = (data.items || []).map(i => ({
         menu_id: i.menu_id, name: i.name, price: i.base_price, unitPrice: i.unit_price,
         quantity: i.quantity, options: i.options || [], note: i.note || null,
       }));
 
       const orderData = {
-        id: data.order_id, table_id, table_number: table?.table_number,
-        total_price: data.total_price, status: 'pending', customer_count,
-        items: enrichedItems, created_at: new Date(),
+        id: data.order_id,
+        table_id: isTakeaway ? null : Number(table_id),
+        table_number: isTakeaway ? null : tableNumber,
+        order_type: isTakeaway ? 'takeaway' : 'dine_in',
+        customer_name: customer_name || null,
+        customer_phone: customer_phone || null,
+        total_price: data.total_price,
+        status: 'pending',
+        customer_count,
+        items: enrichedItems,
+        created_at: new Date(),
       };
 
       const io = req.app.get('io');
       if (io) {
         io.emit('new_order', orderData);
-        io.emit('table_status_update', { table_id, status: 'occupied', current_customers: customer_count });
+        if (!isTakeaway) {
+          io.emit('table_status_update', { table_id: Number(table_id), status: 'occupied', current_customers: customer_count });
+        }
       }
-      sendTelegram(orderData, table?.table_number, enrichedItems).catch(e => console.error('[Telegram]', e.message));
+      sendTelegram(orderData, tableNumber, enrichedItems).catch(e => console.error('[Telegram]', e.message));
       res.status(201).json({ success: true, data: orderData });
     } catch (err) {
       console.error('[createOrder]', err);
       res.status(500).json({ success: false, message: err.message || 'เกิดข้อผิดพลาด' });
+    }
+  },
+
+  // ─── Takeaway: ดูออเดอร์ทั้งหมดของเบอร์โทรนี้ ───
+  getTakeawayOrders: async (req, res) => {
+    const { phone } = req.query;
+    if (!phone) return res.status(400).json({ success: false, message: 'กรุณาระบุเบอร์โทร' });
+    try {
+      const { data: orders, error } = await supabase
+        .from('orders')
+        .select('*, order_items(*, menus(name))')
+        .eq('order_type', 'takeaway')
+        .eq('customer_phone', phone)
+        .not('status', 'in', '("completed","cancelled")')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      const result = (orders || []).map(o => ({
+        ...o,
+        items: (o.order_items || []).map(item => ({
+          ...item,
+          name: item.ordered_menu_name || item.menus?.name,
+          menus: undefined,
+          options: Array.isArray(item.options) ? item.options : [],
+          note: item.note || '',
+        })),
+        order_items: undefined,
+      }));
+      res.json({ success: true, data: result });
+    } catch (err) {
+      console.error('[getTakeawayOrders]', err);
+      res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
     }
   },
 

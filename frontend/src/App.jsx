@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import LandingPage          from './pages/landing'
 import WelcomePage          from './pages/index'
+import TakeawayPage         from './pages/takeaway'
 import TablePage            from './pages/client/[table_id]'
 import AdminDashboard       from './pages/admin/dashboard'
 import MenuManage           from './pages/admin/menu-manage'
@@ -11,8 +13,14 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* ── หน้าต้อนรับ / เลือกโต๊ะ ── */}
-        <Route path="/" element={<WelcomePage />} />
+        {/* ── หน้าแรก: เลือกประเภทบริการ ── */}
+        <Route path="/" element={<LandingPage />} />
+
+        {/* ── ทานที่ร้าน: เลือกโต๊ะ ── */}
+        <Route path="/dine-in" element={<WelcomePage />} />
+
+        {/* ── ใส่กล่องกลับบ้าน: กรอกข้อมูล ── */}
+        <Route path="/takeaway" element={<TakeawayPage />} />
 
         {/* ── Client: หน้าสั่งอาหาร ── */}
         <Route path="/table/:tableId" element={<TablePage />} />

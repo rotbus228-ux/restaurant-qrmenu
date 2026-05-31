@@ -397,7 +397,7 @@ function QRPlaceholder() {
   )
 }
 
-function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effectiveCount, onConfirm, onClose, sending, paymentQrUrl }) {
+function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effectiveCount, onConfirm, onClose, sending, paymentQrUrl, isTakeaway, takeawayInfo }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-[fadeIn_0.2s_ease-out]" onClick={!sending ? onClose : undefined} />
@@ -421,7 +421,11 @@ function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effective
               </button>
             )}
           </div>
-          <p className="text-emerald-100 text-xs mt-1">โต๊ะ {effectiveTableId} · {effectiveCount} คน</p>
+          <p className="text-emerald-100 text-xs mt-1">
+            {isTakeaway
+              ? `🥡 ใส่กล่องกลับบ้าน · ${takeawayInfo?.name || ''} · ${effectiveCount} คน`
+              : `โต๊ะ ${effectiveTableId} · ${effectiveCount} คน`}
+          </p>
         </div>
 
         <div className="overflow-y-auto max-h-[calc(96vh-80px)] p-5 space-y-5">
@@ -469,7 +473,11 @@ function CheckoutModal({ cart, cartTotal, cartCount, effectiveTableId, effective
           <div className="flex items-start gap-2.5 bg-amber-50 rounded-2xl px-4 py-3 ring-1 ring-amber-100">
             <span className="text-base flex-shrink-0">💡</span>
             <p className="text-xs text-amber-700 leading-relaxed">
-              เมื่อรับประทานอาหารเสร็จแล้ว กดปุ่ม <strong>"เรียกเก็บเงิน"</strong> ในแท็บออเดอร์ เพื่อให้พนักงานมาเช็คบิล
+              {isTakeaway ? (
+                <>กรุณาแสดง <strong>เบอร์โทร {takeawayInfo?.phone}</strong> กับพนักงานเมื่อมารับอาหาร และชำระเงินตอนรับของ</>
+              ) : (
+                <>เมื่อรับประทานอาหารเสร็จแล้ว กดปุ่ม <strong>"เรียกเก็บเงิน"</strong> ในแท็บออเดอร์ เพื่อให้พนักงานมาเช็คบิล</>
+              )}
             </p>
           </div>
 
@@ -662,8 +670,20 @@ export default function TablePage() {
   const { tableId } = useParams()
   const location    = useLocation()
 
+  // ─── Takeaway detection ───
+  const isTakeaway = tableId === 'takeaway'
+  const takeawayInfo = (() => {
+    if (!isTakeaway) return null
+    try {
+      const saved = sessionStorage.getItem('takeaway_info')
+      return saved ? JSON.parse(saved) : null
+    } catch { return null }
+  })()
+
   const [effectiveTableId,  setEffectiveTableId]  = useState(tableId)
-  const [effectiveCount,    setEffectiveCount]    = useState(location.state?.customerCount || 1)
+  const [effectiveCount,    setEffectiveCount]    = useState(
+    location.state?.customerCount || takeawayInfo?.pax || 1
+  )
   const [showChangeTable,   setShowChangeTable]   = useState(false)
 
   const [activeTab,      setActiveTab]      = useState('menu')
@@ -784,7 +804,10 @@ export default function TablePage() {
   /* ── Fetch orders (public endpoint, รันทันทีที่โหลดหน้า) ── */
   useEffect(() => {
     setOrdersLoading(true)
-    axios.get(`${API_BASE}/tables/${effectiveTableId}/orders`)
+    const ordersUrl = isTakeaway && takeawayInfo?.phone
+      ? `${API_BASE}/takeaway/orders?phone=${encodeURIComponent(takeawayInfo.phone)}`
+      : `${API_BASE}/tables/${effectiveTableId}/orders`
+    axios.get(ordersUrl)
       .then(r => {
         if (r.data?.data) {
           setOrders(prev => {
@@ -894,16 +917,30 @@ export default function TablePage() {
     if (!cart.length || sending) return
     setSending(true)
     try {
-      const res = await axios.post(`${API_BASE}/orders`, {
-        table_id:       Number(effectiveTableId),
-        customer_count: effectiveCount,
-        items: cart.map(i => ({
-          menu_id:  i.menuId,
-          quantity: i.quantity,
-          options:  i.options,
-          note:     i.note || undefined,
-        })),
-      })
+      const orderPayload = isTakeaway
+        ? {
+            order_type:     'takeaway',
+            customer_name:  takeawayInfo?.name,
+            customer_phone: takeawayInfo?.phone,
+            customer_count: effectiveCount,
+            items: cart.map(i => ({
+              menu_id:  i.menuId,
+              quantity: i.quantity,
+              options:  i.options,
+              note:     i.note || undefined,
+            })),
+          }
+        : {
+            table_id:       Number(effectiveTableId),
+            customer_count: effectiveCount,
+            items: cart.map(i => ({
+              menu_id:  i.menuId,
+              quantity: i.quantity,
+              options:  i.options,
+              note:     i.note || undefined,
+            })),
+          }
+      const res = await axios.post(`${API_BASE}/orders`, orderPayload)
       const order = res.data?.data
       if (order) {
         setOrders(prev => [{ ...order, status: order.status || 'pending' }, ...prev])
@@ -936,8 +973,11 @@ export default function TablePage() {
           <div>
             <h1 className="text-3xl font-black drop-shadow-lg">ขอบคุณที่ใช้บริการ</h1>
             <p className="mt-2 text-white/80 text-sm font-medium leading-relaxed">
-              ชำระเงินเรียบร้อยแล้ว<br />
-              โต๊ะที่ {effectiveTableId} พร้อมให้บริการลูกค้าท่านต่อไป
+              {isTakeaway ? (
+                <>ออเดอร์ของคุณได้รับการชำระแล้ว<br />ขอบคุณที่เลือกใช้บริการของเรา</>
+              ) : (
+                <>ชำระเงินเรียบร้อยแล้ว<br />โต๊ะที่ {effectiveTableId} พร้อมให้บริการลูกค้าท่านต่อไป</>
+              )}
             </p>
           </div>
           <div className="mt-2 bg-white/20 backdrop-blur-sm rounded-2xl px-6 py-4 ring-1 ring-white/30">
@@ -986,6 +1026,8 @@ export default function TablePage() {
           onClose={() => setShowCheckout(false)}
           sending={sending}
           paymentQrUrl={paymentQrUrl}
+          isTakeaway={isTakeaway}
+          takeawayInfo={takeawayInfo}
         />
       )}
 
@@ -1016,26 +1058,49 @@ export default function TablePage() {
           </div>
 
           <div className="mt-3.5 flex items-center gap-2 flex-wrap">
-            <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-md rounded-xl px-3 py-2 ring-1 ring-white/20 shadow-md">
-              <span className="text-lg">🪑</span>
-              <div>
-                <p className="text-[9px] text-orange-50/80 font-black uppercase tracking-widest leading-none">โต๊ะของคุณ</p>
-                <p className="text-sm font-black leading-none mt-1">โต๊ะที่ {effectiveTableId}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowChangeTable(true)}
-              className="bg-white/20 hover:bg-white/30 backdrop-blur-md text-white text-xs font-black px-3 py-2 rounded-xl ring-1 ring-white/20 shadow-md transition-all active:scale-95"
-            >
-              เปลี่ยน
-            </button>
-            <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur-md rounded-xl px-3 py-2 ring-1 ring-white/20 shadow-md">
-              <span className="text-lg">👥</span>
-              <div>
-                <p className="text-[9px] text-orange-50/80 font-black uppercase tracking-widest leading-none">จำนวนคน</p>
-                <p className="text-sm font-black leading-none mt-1">{effectiveCount} คน</p>
-              </div>
-            </div>
+            {isTakeaway ? (
+              <>
+                <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-md rounded-xl px-3 py-2 ring-1 ring-white/20 shadow-md">
+                  <span className="text-lg">🥡</span>
+                  <div>
+                    <p className="text-[9px] text-orange-50/80 font-black uppercase tracking-widest leading-none">ประเภท</p>
+                    <p className="text-sm font-black leading-none mt-1">ใส่กล่องกลับบ้าน</p>
+                  </div>
+                </div>
+                {takeawayInfo?.name && (
+                  <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur-md rounded-xl px-3 py-2 ring-1 ring-white/20 shadow-md">
+                    <span className="text-lg">👤</span>
+                    <div>
+                      <p className="text-[9px] text-orange-50/80 font-black uppercase tracking-widest leading-none">ผู้สั่ง</p>
+                      <p className="text-sm font-black leading-none mt-1">{takeawayInfo.name}</p>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-md rounded-xl px-3 py-2 ring-1 ring-white/20 shadow-md">
+                  <span className="text-lg">🪑</span>
+                  <div>
+                    <p className="text-[9px] text-orange-50/80 font-black uppercase tracking-widest leading-none">โต๊ะของคุณ</p>
+                    <p className="text-sm font-black leading-none mt-1">โต๊ะที่ {effectiveTableId}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowChangeTable(true)}
+                  className="bg-white/20 hover:bg-white/30 backdrop-blur-md text-white text-xs font-black px-3 py-2 rounded-xl ring-1 ring-white/20 shadow-md transition-all active:scale-95"
+                >
+                  เปลี่ยน
+                </button>
+                <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur-md rounded-xl px-3 py-2 ring-1 ring-white/20 shadow-md">
+                  <span className="text-lg">👥</span>
+                  <div>
+                    <p className="text-[9px] text-orange-50/80 font-black uppercase tracking-widest leading-none">จำนวนคน</p>
+                    <p className="text-sm font-black leading-none mt-1">{effectiveCount} คน</p>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -1299,8 +1364,8 @@ export default function TablePage() {
           <div className="py-2">
             <OrderTracker orders={orders} loading={ordersLoading} />
 
-            {/* ปุ่มเรียกเก็บเงิน */}
-            {!ordersLoading && (canRequestCheckout || hasRequestedCheckout) && (
+            {/* ปุ่มเรียกเก็บเงิน — ไม่แสดงสำหรับ takeaway (ชำระตอนรับของ) */}
+            {!ordersLoading && !isTakeaway && (canRequestCheckout || hasRequestedCheckout) && (
               <div className="mx-4 mt-3 mb-4">
                 {hasRequestedCheckout ? (
                   <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-4">
@@ -1343,7 +1408,7 @@ export default function TablePage() {
               <h2 className="text-xl font-black text-stone-900 flex items-center gap-2">
                 <span className="text-2xl">🛒</span> ตะกร้าสินค้า
               </h2>
-              <p className="text-xs text-stone-500 font-semibold">{cartCount} รายการ · โต๊ะ {effectiveTableId}</p>
+              <p className="text-xs text-stone-500 font-semibold">{cartCount} รายการ · {isTakeaway ? '🥡 ใส่กล่องกลับบ้าน' : `โต๊ะ ${effectiveTableId}`}</p>
             </div>
 
             {cart.length === 0 ? (
