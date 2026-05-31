@@ -39,13 +39,22 @@ async function sendOrderNotification(orderData, tableNumber, items) {
     );
   }).join('\n\n');
 
-  const totalPrice = Number(orderData.total_price) || 0;
+  const totalPrice  = Number(orderData.total_price) || 0;
+  const isTakeaway  = orderData.order_type === 'takeaway';
+
+  // ─── บรรทัดบอกประเภทออเดอร์ ─────────────────────────────────────────────
+  const orderTypeLine = isTakeaway
+    ? `🥡 ประเภท: ใส่กล่องกลับบ้าน\n` +
+      `👤 ชื่อลูกค้า: ${orderData.customer_name || '-'}\n` +
+      `📱 เบอร์โทร: ${orderData.customer_phone || '-'}`
+    : `🍽️ ประเภท: ทานที่ร้าน\n` +
+      `🪑 โต๊ะ: ${tableNumber}`;
 
   // ─── ประกอบข้อความตามฟอร์แมตที่กำหนด ────────────────────────────────────
   const message =
     `📝 มีออเดอร์ใหม่เข้าครัว!\n` +
-    `🪑 โต๊ะ: ${tableNumber}\n\n` +
-    `🍽️ รายการอาหารที่สั่ง:\n` +
+    `${orderTypeLine}\n\n` +
+    `🍴 รายการอาหารที่สั่ง:\n` +
     `${itemLines}\n\n` +
     `💰 ยอดรวมออเดอร์นี้: ${totalPrice.toFixed(0)} บาท\n` +
     `----------------------------------\n` +
@@ -59,7 +68,10 @@ async function sendOrderNotification(orderData, tableNumber, items) {
     // ไม่ใส่ parse_mode → plain text (ปลอดภัยกับทุก input)
   });
 
-  console.log(`[Telegram] ✅ แจ้งเตือนออเดอร์โต๊ะ ${tableNumber} สำเร็จ`);
+  const logLabel = isTakeaway
+    ? `takeaway (${orderData.customer_name || orderData.customer_phone})`
+    : `โต๊ะ ${tableNumber}`;
+  console.log(`[Telegram] ✅ แจ้งเตือนออเดอร์ ${logLabel} สำเร็จ`);
 }
 
 module.exports = { sendOrderNotification };
